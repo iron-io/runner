@@ -25,8 +25,10 @@ func main() {
 		s, err := docker.DockerRun(job)
 		if err != nil {
 			fmt.Println("We gots an error!", err)
+			// TODO: jc.UpdateJob with error
 			continue
 		}
+		// TODO: jc.UpdateJob with success
 		fmt.Println("output:", s)
 	}
 }
