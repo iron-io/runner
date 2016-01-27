@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/iron-io/docker-job/api/client"
-	// "github.com/iron-io/docker-job/api/models"
+	"github.com/iron-io/titan/api/client"
+	// "github.com/iron-io/titan/api/models"
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/docker-job/runner/docker"
+	"github.com/iron-io/titan/runner/docker"
+	"time"
 )
 
 func main() {
@@ -21,14 +22,19 @@ func main() {
 			fmt.Println("We gots an error!", err)
 			continue
 		}
+		job.StartedAt = time.Now().Unix()
 		log.Infoln("Got job:", job)
 		s, err := docker.DockerRun(job)
+		job.FinishedAt = time.Now().Unix()
 		if err != nil {
 			fmt.Println("We gots an error!", err)
-			// TODO: jc.UpdateJob with error
+			job.Status = "error"
+			job.Error = err.Error()
+			jc.UpdateJob(*job)
 			continue
 		}
-		// TODO: jc.UpdateJob with success
+		job.Status = "success"
+		jc.UpdateJob(*job)
 		fmt.Println("output:", s)
 	}
 }

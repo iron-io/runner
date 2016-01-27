@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/docker-job/api/models"
+	"github.com/iron-io/titan/api/models"
 	"io"
 	"os/exec"
 )
