@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/iron-io/titan/api/client"
 	// "github.com/iron-io/titan/api/models"
 	log "github.com/Sirupsen/logrus"
@@ -19,7 +18,11 @@ func main() {
 		log.Infoln("Asking for job")
 		job, err := jc.GetJob()
 		if err != nil {
-			fmt.Println("We gots an error!", err)
+			log.Errorln("We gots an error!", err)
+			continue
+		}
+		if job == nil {
+			time.Sleep(1 * time.Second)
 			continue
 		}
 		job.StartedAt = time.Now().Unix()
@@ -27,7 +30,7 @@ func main() {
 		s, err := docker.DockerRun(job)
 		job.FinishedAt = time.Now().Unix()
 		if err != nil {
-			fmt.Println("We gots an error!", err)
+			log.Errorln("We gots an error!", err)
 			job.Status = "error"
 			job.Error = err.Error()
 			jc.UpdateJob(*job)
@@ -35,6 +38,6 @@ func main() {
 		}
 		job.Status = "success"
 		jc.UpdateJob(*job)
-		fmt.Println("output:", s)
+		log.Infoln("output:", s)
 	}
 }
