@@ -5,14 +5,20 @@ import (
 	// "github.com/iron-io/titan/api/models"
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/runner/docker"
+	"os"
 	"time"
 )
 
 func main() {
 	log.SetLevel(log.DebugLevel)
 
+	host := os.Getenv("API_URL")
+	if host == "" {
+		host = "http://localhost:8080"
+	}
+
 	jc := client.JobClient{
-		Host: "http://localhost:8080",
+		Host: host,
 	}
 	for {
 		log.Infoln("Asking for job")
