@@ -24,7 +24,7 @@ func main() {
 		log.Infoln("Asking for job")
 		job, err := jc.GetJob()
 		if err != nil {
-			log.Errorln("We gots an error!", err)
+			log.Errorln("We've got an error!", err)
 			continue
 		}
 		if job == nil {
@@ -36,7 +36,7 @@ func main() {
 		s, err := docker.DockerRun(job)
 		job.FinishedAt = time.Now().Unix()
 		if err != nil {
-			log.Errorln("We gots an error!", err)
+			log.Errorln("We've got an error!", err)
 			job.Status = "error"
 			job.Error = err.Error()
 			jc.UpdateJob(*job)
