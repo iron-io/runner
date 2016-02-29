@@ -18,19 +18,20 @@ func DockerRun(job *models.Job) (string, error) {
 	}
 	// TODO: convert this to use the Docker API. See Docker Jockey for examples.
 	args := []string{"run", "--rm", "-i"}
+	log.Warnln("Passing PAYLOAD:", job.Payload)
 	args = append(args, "-e", "PAYLOAD="+job.Payload)
 	args = append(args, job.Image)
 	cmd := exec.Command("docker", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Fatal(err)
+		log.Errorln("Couldn't get stdout", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		log.Fatal(err)
+		log.Errorln("Couldn't get stderr", err)
 	}
 	if err := cmd.Start(); err != nil {
-		log.Fatal(err)
+		log.Errorln("Couldn't start container", err)
 	}
 	var b bytes.Buffer
 	buff := bufio.NewWriter(&b)
@@ -40,7 +41,7 @@ func DockerRun(job *models.Job) (string, error) {
 
 	log.Printf("Waiting for command to finish...")
 	if err = cmd.Wait(); err != nil {
-		log.Fatal(err)
+		log.Errorln("Error on cmd.wait", err)
 	}
 	log.Printf("Command finished with error: %v", err)
 	buff.Flush()
@@ -52,8 +53,11 @@ func checkAndPull(image string) error {
 	err := execAndPrint("docker", []string{"inspect", image})
 	if err != nil {
 		// image does not exist, so let's pull
-		fmt.Println("Image not found locally, will pull.", err)
+		log.Infoln("Image not found locally, will pull.", err)
 		err = execAndPrint("docker", []string{"pull", image})
+		if err != nil {
+			log.Errorln("Couldn't pull image", err)
+		}
 	}
 	return err
 }
@@ -78,9 +82,13 @@ func execAndPrint(cmdstr string, args []string) error {
 	go io.Copy(buffout, stdout)
 	go io.Copy(bufferr, stderr)
 
-	log.Info("Waiting for cmd to finish...")
+	log.Info("Waiting for cmd to finish in execAndPrint...")
 	err = cmd.Wait()
-	log.Debugln("stderr:", berr.String())
-	log.Debugln("stdout:", bout.String())
+	if err != nil {
+		log.Errorln("Error on cmd.Wait in execAndPrint", err)
+		log.Debugln("stderr:", berr.String())
+		log.Debugln("stdout:", bout.String())
+
+	}
 	return err
 }
