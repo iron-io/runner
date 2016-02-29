@@ -25,16 +25,17 @@ func main() {
 		job, err := jc.GetJob()
 		if err != nil {
 			log.Errorln("We've got an error!", err)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		if job == nil {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		job.StartedAt = time.Now().Unix()
+		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
 		s, err := docker.DockerRun(job)
-		job.FinishedAt = time.Now().Unix()
+		job.FinishedAt = time.Now()
 		if err != nil {
 			log.Errorln("We've got an error!", err)
 			job.Status = "error"
