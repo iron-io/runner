@@ -6,12 +6,13 @@ import (
 	"errors"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/titan/api/models"
+	// "github.com/iron-io/titan/api/models"
+	"github.com/iron-io/titan/runner/swagger"
 	"io"
 	"os/exec"
 )
 
-func DockerRun(job *models.Job) (string, error) {
+func DockerRun(job swagger.Job) (string, error) {
 	err := checkAndPull(job.Image)
 	if err != nil {
 		return "", errors.New(fmt.Sprintln("The image", job.Image, "could not be pulled:", err))

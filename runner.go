@@ -1,10 +1,11 @@
 package main
 
 import (
-	"github.com/iron-io/titan/api/client"
+	// "github.com/iron-io/titan/api/client"
 	// "github.com/iron-io/titan/api/models"
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/runner/docker"
+	"github.com/iron-io/titan/runner/swagger"
 	"os"
 	"time"
 )
@@ -17,21 +18,20 @@ func main() {
 		host = "http://localhost:8080"
 	}
 
-	jc := client.JobClient{
-		Host: host,
-	}
+	jc := swagger.NewCoreApiWithBasePath(host)
 	for {
 		log.Infoln("Asking for job")
-		job, err := jc.GetJob()
+		jobs, err := jc.JobsGet()
 		if err != nil {
 			log.Errorln("We've got an error!", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		if job == nil {
+		if len(jobs) < 1 || len(jobs[0].Jobs) < 1 {
 			time.Sleep(1 * time.Second)
 			continue
 		}
+		job := jobs[0].Jobs[0]
 		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
 		s, err := docker.DockerRun(job)
@@ -40,11 +40,11 @@ func main() {
 			log.Errorln("We've got an error!", err)
 			job.Status = "error"
 			job.Error = err.Error()
-			jc.UpdateJob(*job)
+			jc.JobIdPatch(job.Id, swagger.JobWrapper{job})
 			continue
 		}
 		job.Status = "success"
-		jc.UpdateJob(*job)
+		jc.JobIdPatch(job.Id, swagger.JobWrapper{job})
 		log.Infoln("output:", s)
 	}
 }
