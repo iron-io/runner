@@ -20,17 +20,19 @@ func main() {
 	jc := titan_go.NewCoreApiWithBasePath(host)
 	for {
 		log.Infoln("Asking for job")
-		jobs, err := jc.JobsGet()
+		jobsResp, err := jc.JobsGet(1)
 		if err != nil {
 			log.Errorln("We've got an error!", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		if len(jobs.Jobs) < 1 {
+		// TODO: Go generator messed this up I think, shouldn't be a slice of JobArray's
+		jobs := jobsResp.Jobs
+		if len(jobs) < 1 {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		job := jobs.Jobs[0]
+		job := jobs[0]
 		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
 		s, err := docker.DockerRun(job)
