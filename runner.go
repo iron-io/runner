@@ -26,11 +26,11 @@ func main() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		if len(jobs) < 1 || len(jobs[0].Jobs) < 1 {
+		if len(jobs.Jobs) < 1 {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		job := jobs[0].Jobs[0]
+		job := jobs.Jobs[0]
 		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
 		s, err := docker.DockerRun(job)
