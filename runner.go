@@ -17,7 +17,7 @@ func main() {
 		host = "http://localhost:8080"
 	}
 
-	jc := titan_go.NewCoreApiWithBasePath(host)
+	jc := titan_go.NewJobsApiWithBasePath(host)
 	for {
 		log.Infoln("Asking for job")
 		jobsResp, err := jc.JobsGet(1)
@@ -26,7 +26,6 @@ func main() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		// TODO: Go generator messed this up I think, shouldn't be a slice of JobArray's
 		jobs := jobsResp.Jobs
 		if len(jobs) < 1 {
 			time.Sleep(1 * time.Second)
@@ -41,11 +40,17 @@ func main() {
 			log.Errorln("We've got an error!", err)
 			job.Status = "error"
 			job.Error = err.Error()
-			jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
+			_, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
+			if err != nil {
+				log.Errorln("ERROR PATCHING:", err)
+			}
 			continue
 		}
-		job.Status = "success"
-		jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
 		log.Infoln("output:", s)
+		job.Status = "success"
+		_, err = jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
+		if err != nil {
+			log.Errorln("ERROR PATCHING:", err)
+		}
 	}
 }
