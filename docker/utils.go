@@ -26,13 +26,16 @@ func DockerRun(job titan_go.Job) (string, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stdout", err)
+		return "", fmt.Errorf("Couldn't get stdout %v", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stderr", err)
+		return "", fmt.Errorf("Couldn't get stderr %v", err)
 	}
 	if err := cmd.Start(); err != nil {
 		log.Errorln("Couldn't start container", err)
+		return "", fmt.Errorf("Couldn't start container %v", err)
 	}
 	var b bytes.Buffer
 	buff := bufio.NewWriter(&b)
@@ -43,11 +46,11 @@ func DockerRun(job titan_go.Job) (string, error) {
 	log.Printf("Waiting for command to finish...")
 	if err = cmd.Wait(); err != nil {
 		log.Errorln("Error on cmd.wait", err)
+		// this will happen if user's code fails, so we want to pass this back and update job
 	}
-	log.Printf("Command finished with error: %v", err)
 	buff.Flush()
-	log.Infoln("Docker ran successfully:", b.String())
-	return b.String(), nil
+	log.Infoln("Docker run finished:", b.String())
+	return b.String(), err
 }
 
 func checkAndPull(image string) error {

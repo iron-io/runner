@@ -3,9 +3,10 @@
 package drivers
 
 type Driver interface {
-	Run() RunResult
+	Run(*models.Job) RunResult
 }
 
 // RunResult will provide methods to access the job completion status, logs, etc.
 type RunResult interface {
+        
 }
