@@ -16,6 +16,11 @@ func main() {
 	if host == "" {
 		host = "http://localhost:8080"
 	}
+	timeoutString := os.Getenv("TIMEOUT")
+	if timeoutString == "" {
+		timeoutString = "10"
+	}
+	timeout := int(timeoutString)
 
 	jc := titan_go.NewJobsApiWithBasePath(host)
 	for {
@@ -34,12 +39,17 @@ func main() {
 		job := jobs[0]
 		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
-		s, err := docker.DockerRun(job)
+		s, err := docker.DockerRun(job, timeout)
 		job.CompletedAt = time.Now()
 		if err != nil {
-			log.Errorln("We've got an error!", err)
-			job.Status = "error"
-			job.Error = err.Error()
+			if err.Error() == "Timeout" {
+				log.Errorln("Timeout!")
+				job.Status = "timeout"
+			} else {
+				log.Errorln("We've got an error!", err)
+				job.Status = "error"
+				job.Error = err.Error()
+			}
 			_, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
 			if err != nil {
 				log.Errorln("ERROR PATCHING:", err)

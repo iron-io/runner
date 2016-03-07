@@ -10,9 +10,10 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	titan_go "github.com/iron-io/titan_go"
+	"time"
 )
 
-func DockerRun(job titan_go.Job) (string, error) {
+func DockerRun(job titan_go.Job, timeout int) (string, error) {
 	err := checkAndPull(job.Image)
 	if err != nil {
 		return "", errors.New(fmt.Sprintln("The image", job.Image, "could not be pulled:", err))
@@ -40,14 +41,35 @@ func DockerRun(job titan_go.Job) (string, error) {
 	go io.Copy(buff, stdout)
 	go io.Copy(buff, stderr)
 
+	done := make(chan bool, 1)
+
+	go waitCmd(cmd, done)
+	go waitTimeout(cmd, buff, done, timeout)
+
+	isSuccess := <- done
+
+	buff.Flush()
+	if (isSuccess) {
+		log.Infoln("Docker ran successfully:", b.String())
+		return b.String(), nil
+	} else {
+		log.Infoln("Timeout:", b.String())
+		return b.String(), errors.New("Timeout")
+	}
+}
+
+func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, done chan bool, timeout int) {
+	time.Sleep(timeout * time.Second)
+	cmd.Process.Kill()
+	buff.Write([]byte("Timeout"))
+	done <- false
+}
+func waitCmd(cmd *exec.Cmd, done chan bool) {
 	log.Printf("Waiting for command to finish...")
-	if err = cmd.Wait(); err != nil {
+	if err := cmd.Wait(); err != nil {
 		log.Errorln("Error on cmd.wait", err)
 	}
-	log.Printf("Command finished with error: %v", err)
-	buff.Flush()
-	log.Infoln("Docker ran successfully:", b.String())
-	return b.String(), nil
+	done <- true
 }
 
 func checkAndPull(image string) error {
