@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func DockerRun(job titan_go.Job, timeout int) (string, error) {
+func DockerRun(job titan_go.Job) (string, error) {
 	err := checkAndPull(job.Image)
 	if err != nil {
 		return "", errors.New(fmt.Sprintln("The image", job.Image, "could not be pulled:", err))
@@ -44,7 +44,7 @@ func DockerRun(job titan_go.Job, timeout int) (string, error) {
 	done := make(chan bool, 1)
 
 	go waitCmd(cmd, done)
-	go waitTimeout(cmd, buff, done, timeout)
+	go waitTimeout(cmd, buff, done, time.Duration(job.Timeout))
 
 	isSuccess := <- done
 
@@ -58,7 +58,7 @@ func DockerRun(job titan_go.Job, timeout int) (string, error) {
 	}
 }
 
-func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, done chan bool, timeout int) {
+func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, done chan bool, timeout time.Duration) {
 	time.Sleep(timeout * time.Second)
 	cmd.Process.Kill()
 	buff.Write([]byte("Timeout"))

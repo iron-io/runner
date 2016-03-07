@@ -16,11 +16,6 @@ func main() {
 	if host == "" {
 		host = "http://localhost:8080"
 	}
-	timeoutString := os.Getenv("TIMEOUT")
-	if timeoutString == "" {
-		timeoutString = "10"
-	}
-	timeout := int(timeoutString)
 
 	jc := titan_go.NewJobsApiWithBasePath(host)
 	for {
@@ -39,7 +34,7 @@ func main() {
 		job := jobs[0]
 		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
-		s, err := docker.DockerRun(job, timeout)
+		s, err := docker.DockerRun(job)
 		job.CompletedAt = time.Now()
 		if err != nil {
 			if err.Error() == "Timeout" {
