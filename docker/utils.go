@@ -12,8 +12,13 @@ import (
 	titan_go "github.com/iron-io/titan_go"
 	"time"
 )
+type RunResult struct {
+	cmd *exec.Cmd
+	buff *bufio.Writer
+	b bytes.Buffer
+}
 
-func DockerRun(job titan_go.Job) (string, error) {
+func DockerRun(job titan_go.Job) (RunResult, error) {
 	err := checkAndPull(job.Image)
 	if err != nil {
 		return "", errors.New(fmt.Sprintln("The image", job.Image, "could not be pulled:", err))
@@ -27,16 +32,16 @@ func DockerRun(job titan_go.Job) (string, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stdout", err)
-		return "", fmt.Errorf("Couldn't get stdout %v", err)
+		return nil, fmt.Errorf("Couldn't get stdout %v", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stderr", err)
-		return "", fmt.Errorf("Couldn't get stderr %v", err)
+		return nil, fmt.Errorf("Couldn't get stderr %v", err)
 	}
 	if err := cmd.Start(); err != nil {
 		log.Errorln("Couldn't start container", err)
-		return "", fmt.Errorf("Couldn't start container %v", err)
+		return nil, fmt.Errorf("Couldn't start container %v", err)
 	}
 	var b bytes.Buffer
 	buff := bufio.NewWriter(&b)
@@ -44,35 +49,43 @@ func DockerRun(job titan_go.Job) (string, error) {
 	go io.Copy(buff, stdout)
 	go io.Copy(buff, stderr)
 
-	done := make(chan bool, 1)
+	return &RunResult{
+		cmd: cmd,
+		buff: buff,
+		b: b,
+	}, nil
+}
 
-	go waitCmd(cmd, done)
-	go waitTimeout(cmd, buff, done, time.Duration(job.Timeout))
+func Wait(job titan_go.Job, result RunResult) (string, error) {
 
-	isSuccess := <- done
+	cmd := result.cmd
+	buff := result.buff
+	b := result.b
+	errChan := make(chan error, 1)
+
+	go waitCmd(cmd, errChan)
+	go waitTimeout(cmd, buff, errChan, time.Duration(job.Timeout))
+
+	err := <-errChan
 
 	buff.Flush()
 	log.Infoln("Docker run finished:", b.String())
-	if (isSuccess) {
-		return b.String(), nil
-	} else {
-		log.Infoln("Timeout:", b.String())
-		return b.String(), errors.New("Timeout")
-	}
+	return b.String(), err
 }
 
-func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, done chan bool, timeout time.Duration) {
+func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, err chan error, timeout time.Duration) {
 	time.Sleep(timeout * time.Second)
 	cmd.Process.Kill()
 	buff.Write([]byte("Timeout"))
-	done <- false
+	err <- errors.New("Timeout")
 }
-func waitCmd(cmd *exec.Cmd, done chan bool) {
+func waitCmd(cmd *exec.Cmd, errChan chan bool) {
 	log.Printf("Waiting for command to finish...")
 	if err := cmd.Wait(); err != nil {
 		log.Errorln("Error on cmd.wait", err)
+		errChan <- err
 	}
-	done <- true
+	errChan <- nil
 }
 
 func checkAndPull(image string) error {
