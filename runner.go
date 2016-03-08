@@ -37,13 +37,30 @@ func main() {
 		s, err := docker.DockerRun(job)
 		job.CompletedAt = time.Now()
 		if err != nil {
-			if err.Error() == "Timeout" {
-				log.Errorln("Timeout!")
-				job.Status = "timeout"
-			} else {
-				log.Errorln("We've got an error!", err)
-				job.Status = "error"
-				job.Error = err.Error()
+			log.Errorln("We've got an error!", err)
+			job.Status = "error"
+			job.Error = err.Error()
+			if job.Retries > 0 {
+				// then we create a new job
+				log.Debugln("Retrying job")
+				ja, err := jc.JobsPost(titan_go.NewJobArray{
+					Jobs: []titan_go.NewJob{
+						titan_go.NewJob{
+							Name:         job.Name,
+							Image:        job.Image,
+							Payload:      job.Payload,
+							Delay:        job.RetriesDelay,
+							Timeout:      job.Timeout,
+							Retries:      job.Retries - 1,
+							RetriesDelay: job.RetriesDelay,
+							RetryFromId:  job.Id,
+						},
+					},
+				})
+				if err != nil {
+					log.Errorln("Error posting retry job", err)
+				}
+				job.RetryId = ja.Jobs[0].Id
 			}
 			_, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
 			if err != nil {

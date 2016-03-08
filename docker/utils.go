@@ -27,13 +27,16 @@ func DockerRun(job titan_go.Job) (string, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stdout", err)
+		return "", fmt.Errorf("Couldn't get stdout %v", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stderr", err)
+		return "", fmt.Errorf("Couldn't get stderr %v", err)
 	}
 	if err := cmd.Start(); err != nil {
 		log.Errorln("Couldn't start container", err)
+		return "", fmt.Errorf("Couldn't start container %v", err)
 	}
 	var b bytes.Buffer
 	buff := bufio.NewWriter(&b)
@@ -49,8 +52,8 @@ func DockerRun(job titan_go.Job) (string, error) {
 	isSuccess := <- done
 
 	buff.Flush()
+	log.Infoln("Docker run finished:", b.String())
 	if (isSuccess) {
-		log.Infoln("Docker ran successfully:", b.String())
 		return b.String(), nil
 	} else {
 		log.Infoln("Timeout:", b.String())
