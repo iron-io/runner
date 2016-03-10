@@ -57,7 +57,7 @@ func main() {
 			if job.Retries > 0 {
 				// then we create a new job
 				log.Debugln("Retrying job")
-				ja, err := jc.JobsPost(titan_go.NewJobArray{
+				ja, err := jc.JobsPost(titan_go.NewJobsWrapper{
 					Jobs: []titan_go.NewJob{
 						titan_go.NewJob{
 							Name:         job.Name,
