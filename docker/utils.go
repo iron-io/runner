@@ -12,13 +12,8 @@ import (
 	titan_go "github.com/iron-io/titan_go"
 	"time"
 )
-type RunResult struct {
-	cmd *exec.Cmd
-	buff *bufio.Writer
-	b bytes.Buffer
-}
 
-func DockerRun(job titan_go.Job) (RunResult, error) {
+func DockerRun(job titan_go.Job) (string, error) {
 	err := checkAndPull(job.Image)
 	if err != nil {
 		return "", errors.New(fmt.Sprintln("The image", job.Image, "could not be pulled:", err))
@@ -32,16 +27,16 @@ func DockerRun(job titan_go.Job) (RunResult, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stdout", err)
-		return nil, fmt.Errorf("Couldn't get stdout %v", err)
+		return "", fmt.Errorf("Couldn't get stdout %v", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		log.Errorln("Couldn't get stderr", err)
-		return nil, fmt.Errorf("Couldn't get stderr %v", err)
+		return "", fmt.Errorf("Couldn't get stderr %v", err)
 	}
 	if err := cmd.Start(); err != nil {
 		log.Errorln("Couldn't start container", err)
-		return nil, fmt.Errorf("Couldn't start container %v", err)
+		return "", fmt.Errorf("Couldn't start container %v", err)
 	}
 	var b bytes.Buffer
 	buff := bufio.NewWriter(&b)
@@ -49,24 +44,12 @@ func DockerRun(job titan_go.Job) (RunResult, error) {
 	go io.Copy(buff, stdout)
 	go io.Copy(buff, stderr)
 
-	return &RunResult{
-		cmd: cmd,
-		buff: buff,
-		b: b,
-	}, nil
-}
-
-func Wait(job titan_go.Job, result RunResult) (string, error) {
-
-	cmd := result.cmd
-	buff := result.buff
-	b := result.b
 	errChan := make(chan error, 1)
 
 	go waitCmd(cmd, errChan)
 	go waitTimeout(cmd, buff, errChan, time.Duration(job.Timeout))
 
-	err := <-errChan
+	err = <-errChan
 
 	buff.Flush()
 	log.Infoln("Docker run finished:", b.String())
@@ -79,7 +62,7 @@ func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, err chan error, timeout time
 	buff.Write([]byte("Timeout"))
 	err <- errors.New("Timeout")
 }
-func waitCmd(cmd *exec.Cmd, errChan chan bool) {
+func waitCmd(cmd *exec.Cmd, errChan chan error) {
 	log.Printf("Waiting for command to finish...")
 	if err := cmd.Wait(); err != nil {
 		log.Errorln("Error on cmd.wait", err)

@@ -34,16 +34,7 @@ func main() {
 		job := jobs[0]
 		job.StartedAt = time.Now()
 		log.Infoln("Got job:", job)
-		result, err := docker.DockerRun(job)
-		job.Status = "running"
-		_, errUpdate := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
-		if errUpdate != nil {
-			log.Errorln("ERROR PATCHING:", errUpdate)
-		}
-		s := ""
-		if err == nil {
-			s, err = docker.Wait(job, result)
-		}
+		s, err := docker.DockerRun(job)
 		job.CompletedAt = time.Now()
 		if err != nil {
 			if err.Error() == "timeout" {
@@ -52,7 +43,7 @@ func main() {
 			} else {
 				log.Errorln("We've got an error!", err)
 				job.Status = "error"
-				job.Error = err.Error()
+				job.Error_ = err.Error()
 			}
 			if job.Retries > 0 {
 				// then we create a new job
