@@ -65,6 +65,7 @@ func main() {
 				if err != nil {
 					log.Errorln("Error posting retry job", err)
 				}
+				log.Infoln("ja:", ja)
 				job.RetryId = ja.Jobs[0].Id
 			}
 			_, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
