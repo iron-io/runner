@@ -1,4 +1,5 @@
-FROM treeder/ruby-dind
+#FROM treeder/ruby-dind
+FROM iron/go
 
 WORKDIR /app
 ADD runner /app
