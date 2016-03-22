@@ -8,9 +8,10 @@ import (
 	"io"
 	"os/exec"
 
+	"time"
+
 	log "github.com/Sirupsen/logrus"
 	titan_go "github.com/iron-io/titan_go"
-	"time"
 )
 
 func DockerRun(job titan_go.Job) (string, error) {
@@ -20,7 +21,7 @@ func DockerRun(job titan_go.Job) (string, error) {
 	}
 	// TODO: convert this to use the Docker API. See Docker Jockey for examples.
 	args := []string{"run", "--rm", "-i"}
-	log.Warnln("Passing PAYLOAD:", job.Payload)
+	log.Infoln("Starting job. PAYLOAD:", job.Payload, "timeout", job.Timeout)
 	args = append(args, "-e", "PAYLOAD="+job.Payload)
 	args = append(args, job.Image)
 	cmd := exec.Command("docker", args...)
@@ -59,8 +60,8 @@ func DockerRun(job titan_go.Job) (string, error) {
 func waitTimeout(cmd *exec.Cmd, buff *bufio.Writer, err chan error, timeout time.Duration) {
 	time.Sleep(timeout * time.Second)
 	cmd.Process.Kill()
-	buff.Write([]byte("Timeout"))
-	err <- errors.New("Timeout")
+	buff.Write([]byte("timeout"))
+	err <- errors.New("timeout")
 }
 func waitCmd(cmd *exec.Cmd, errChan chan error) {
 	log.Printf("Waiting for command to finish...")

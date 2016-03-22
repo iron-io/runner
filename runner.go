@@ -33,7 +33,7 @@ func main() {
 		}
 		job := jobs[0]
 		job.StartedAt = time.Now()
-		log.Infoln("Got job:", job)
+		log.Infof("Got job: %+v\n", job)
 		s, err := docker.DockerRun(job)
 		job.CompletedAt = time.Now()
 		if err != nil {
