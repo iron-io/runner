@@ -2,7 +2,10 @@
 
 package drivers
 
-import "os"
+import (
+	"errors"
+	"os"
+)
 
 type Driver interface {
 	// Run(*models.Job) RunResult
@@ -36,3 +39,22 @@ type ContainerTask interface {
 	Payload() string
 	Timeout() uint
 }
+
+// Set of acceptable errors coming from container engines to TaskRunner
+var (
+	// ErrOutOfMemory for OOM in container engine
+	ErrOutOfMemory = errors.New("out of memory error")
+	// ErrUnknown for unspecified errors
+	ErrUnknown = errors.New("unknown error")
+)
+
+// TODO: ensure some type is applied to these statuses.
+const (
+	// task statuses
+	StatusRunning   = "running"
+	StatusComplete  = "complete"
+	StatusError     = "error"
+	StatusTimeout   = "timeout"
+	StatusKilled    = "killed"
+	StatusCancelled = "cancelled"
+)
