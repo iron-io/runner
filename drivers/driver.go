@@ -8,5 +8,4 @@ type Driver interface {
 
 // RunResult will provide methods to access the job completion status, logs, etc.
 type RunResult interface {
-        
 }
