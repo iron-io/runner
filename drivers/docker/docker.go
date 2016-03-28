@@ -26,12 +26,11 @@ const (
 type dockerDriver struct {
 	conf       common.Config
 	docker     *docker.Client
-	clock      common.Clock
 	hostname   string
 	runtimeDir string
 }
 
-func NewDocker(conf common.Config, clock common.Clock, hostname string) (*dockerDriver, error) {
+func NewDocker(conf common.Config, hostname string) (*dockerDriver, error) {
 	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
@@ -41,7 +40,6 @@ func NewDocker(conf common.Config, clock common.Clock, hostname string) (*docker
 	return &dockerDriver{
 		conf:       conf,
 		docker:     docker,
-		clock:      clock,
 		hostname:   hostname,
 		runtimeDir: runtimeDir,
 	}, nil
@@ -247,7 +245,7 @@ func (drv *dockerDriver) nanny(container string, task drivers.ContainerTask, sen
 	// 	ctx.Warn("task has really long timeout of greater than a day")
 	// }
 	// Log task timeout values so we can get a good idea of what people generally set it to.
-	timeout := drv.clock.After(t)
+	timeout := time.After(t)
 
 	select {
 	case <-done:
