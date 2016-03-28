@@ -1,11 +1,13 @@
 package main
 
 import (
+	"io/ioutil"
 	"os"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/titan/runner/docker"
+	"github.com/iron-io/titan/runner/drivers"
+	"github.com/iron-io/titan/runner/drivers/common"
 	titan_go "github.com/iron-io/titan_go"
 )
 
@@ -15,6 +17,15 @@ func main() {
 	host := os.Getenv("API_URL")
 	if host == "" {
 		host = "http://localhost:8080"
+	}
+
+	var cfg = common.Config{}
+	cfg.Defaults()
+	cfg.Root = "."
+	cfg.Memory = 128 * 1024 * 1024
+	drv, err := FactoryDriver(Docker, cfg, "localhost")
+	if err != nil {
+		log.Fatalln("error creating Docker client", err)
 	}
 
 	jc := titan_go.NewJobsApiWithBasePath(host)
@@ -32,19 +43,17 @@ func main() {
 			continue
 		}
 		job := jobs[0]
-		job.StartedAt = time.Now()
 		log.Infof("Got job: %+v\n", job)
-		s, err := docker.DockerRun(job)
+		cancelledChan := make(chan bool)
+		job.StartedAt = time.Now()
+		s := drv.Run(&JobWrapper{&job}, cancelledChan)
 		job.CompletedAt = time.Now()
-		if err != nil {
-			if err.Error() == "timeout" {
-				log.Errorln("Timeout!")
-				job.Status = "timeout"
-			} else {
-				log.Errorln("We've got an error!", err)
-				job.Status = "error"
-				job.Error_ = err.Error()
-			}
+
+		if hasErroredOrTimedOut(s) {
+			err := s.Error()
+			job.Status = s.Status()
+			job.Error_ = err.Error()
+
 			if job.Retries > 0 {
 				// then we create a new job
 				log.Debugln("Retrying job")
@@ -68,17 +77,26 @@ func main() {
 				log.Infoln("ja:", ja)
 				job.RetryId = ja.Jobs[0].Id
 			}
-			_, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
-			if err != nil {
+			if _, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job}); err != nil {
 				log.Errorln("ERROR PATCHING:", err)
 			}
 			continue
 		}
-		log.Infoln("output:", s)
-		job.Status = "success"
+		log.Infoln("Job status:", s.Status())
+		bytes, err := ioutil.ReadAll(s.Log())
+		if err != nil {
+			log.Errorln("Could not read log", err)
+		} else {
+			log.Println(string(bytes))
+		}
+		job.Status = drivers.StatusComplete
 		_, err = jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
 		if err != nil {
 			log.Errorln("ERROR PATCHING:", err)
 		}
 	}
+}
+
+func hasErroredOrTimedOut(s drivers.RunResult) bool {
+	return s.Error() != nil || s.Status() == drivers.StatusTimeout
 }
