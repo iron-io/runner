@@ -31,7 +31,7 @@ func (c *Config) Defaults() {
 	}
 	// Docker only runs with minimum of 4mb.
 	if c.Memory == 0 {
-		c.Memory = 4 * 1024 * 1024
+		c.Memory = 256 * 1024 * 1024
 	}
 	if c.CPUShares == 0 {
 		c.CPUShares = 2
