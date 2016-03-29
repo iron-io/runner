@@ -29,7 +29,6 @@ func (c *Config) Defaults() {
 	if c.Docker == "" {
 		c.Docker = whereisdocker
 	}
-	// Docker only runs with minimum of 4mb.
 	if c.Memory == 0 {
 		c.Memory = 256 * 1024 * 1024
 	}
