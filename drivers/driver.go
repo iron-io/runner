@@ -52,7 +52,7 @@ var (
 const (
 	// task statuses
 	StatusRunning   = "running"
-	StatusComplete  = "complete"
+	StatusSuccess   = "success"
 	StatusError     = "error"
 	StatusTimeout   = "timeout"
 	StatusKilled    = "killed"

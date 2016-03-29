@@ -271,7 +271,7 @@ func (drv *dockerDriver) status(exitCode int, sentence <-chan string) (string, e
 	default:
 		switch exitCode {
 		case 0:
-			status = drivers.StatusComplete
+			status = drivers.StatusSuccess
 		case 137:
 			// Probably an OOM kill
 

@@ -89,7 +89,7 @@ func main() {
 		} else {
 			log.Println(string(bytes))
 		}
-		job.Status = drivers.StatusComplete
+		job.Status = drivers.StatusSuccess
 		_, err = jc.JobIdPatch(job.Id, titan_go.JobWrapper{job})
 		if err != nil {
 			log.Errorln("ERROR PATCHING:", err)
