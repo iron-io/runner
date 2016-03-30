@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/ioutil"
 	"bytes"
 	"fmt"
 	"io"
@@ -120,6 +119,21 @@ func Run(conf drivercommon.Config, tasker *Tasker, clock drivercommon.Clock, don
 			fin <- struct{}{}
 		}(i)
 	}
+	log.Info("all tasks done, exiting cleanly. thank you, come again.")
+}
+
+func (g *gofer) runner(i int, done <-chan struct{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			g.Inc("runner", "panicked", 1, 0.1)
+			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
+			log.Warn("recovered from panic, restarting runner", "stack", r)
+			go g.runner(i, done)
+		}
+	}()
+
+	// tasks only exists to allow shutdown to interrupt waiting for job
+	tasks := make(chan *titan.Job, 1)
 
 	<-done
 	log.Info("shutting down, let all tasks finish! or else...")
@@ -142,7 +156,6 @@ func (g *gofer) runner(i int, done <-chan struct{}) {
 
 	// tasks only exists to allow shutdown to interrupt waiting for job
 	tasks := make(chan *titan.Job, 1)
-
 	for {
 		ctx := common.NewContext(g.Environment, "runner", uint64(i))
 		ctx.Debug("getting task")
@@ -255,43 +268,7 @@ func (g *gofer) emitCancellationSignal(ctx *common.Context, job *titan.Job, isCa
 			log.Errorln("emitCancellationSignal panic", e)
 			go g.emitCancellationSignal(ctx, job, isCancelledCtx, isCancelled)
 		}
-		job := jobs[0]
-		log.Infof("Got job: %+v\n", job)
-		cancelledChan := make(chan bool)
-		job.StartedAt = time.Now()
-		s := drv.Run(&JobWrapper{&job}, cancelledChan)
-		job.CompletedAt = time.Now()
 
-		if hasErroredOrTimedOut(s) {
-			err := s.Error()
-			job.Status = s.Status()
-			job.Error_ = err.Error()
-
-			if job.Retries > 0 {
-				// then we create a new job
-				log.Debugln("Retrying job")
-				ja, err := jc.JobsPost(titan_go.NewJobsWrapper{
-					Jobs: []titan_go.NewJob{
-						titan_go.NewJob{
-							Name:         job.Name,
-							Image:        job.Image,
-							Payload:      job.Payload,
-							Delay:        job.RetriesDelay,
-							Timeout:      job.Timeout,
-							Retries:      job.Retries - 1,
-							RetriesDelay: job.RetriesDelay,
-							RetryFromId:  job.Id,
-						},
-					},
-				})
-				if err != nil {
-					log.Errorln("Error posting retry job", err)
-				}
-				log.Infoln("ja:", ja)
-				job.RetryId = ja.Jobs[0].Id
-			}
-			if _, err := jc.JobIdPatch(job.Id, titan_go.JobWrapper{job}); err != nil {
-				log.Errorln("ERROR PATCHING:", err)
 	}()
 	for {
 		ic := g.tasker.IsCancelled(ctx, job)
@@ -309,7 +286,6 @@ func (g *gofer) emitCancellationSignal(ctx *common.Context, job *titan.Job, isCa
 			case <-g.clock.After(5 * time.Second):
 			}
 		}
-
 	}
 }
 
