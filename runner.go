@@ -49,14 +49,14 @@ func (g *goferTask) Timeout() uint              { return g.timeout }
 type gofer struct {
 	conf       drivercommon.Config
 	tasker     *Tasker
-	clock      drivercommon.Clock
+	clock      gofercommon.Clock
 	hostname   string
 	instanceID string
 	container  drivers.Driver
 	*common.Environment
 }
 
-func newGofer(conf drivercommon.Config, tasker *Tasker, clock drivercommon.Clock, hostname string, container drivers.Driver) (*gofer, error) {
+func newGofer(conf drivercommon.Config, tasker *Tasker, clock gofercommon.Clock, hostname string, container drivers.Driver) (*gofer, error) {
 	var err error
 	g := &gofer{
 		conf:        conf,
@@ -95,13 +95,13 @@ func instanceID() (string, error) {
 	return buf.String(), nil
 }
 
-func Run(conf drivercommon.Config, tasker *Tasker, clock drivercommon.Clock, done <-chan struct{}) {
+func Run(conf drivercommon.Config, tasker *Tasker, clock gofercommon.Clock, done <-chan struct{}) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
 	}
 
-	docker, err := docker.NewDocker(conf, clock, hostname)
+	docker, err := docker.NewDocker(conf, hostname)
 	if err != nil {
 		log.Fatal("couldn't start container driver", "err", err)
 	}
@@ -118,28 +118,6 @@ func Run(conf drivercommon.Config, tasker *Tasker, clock drivercommon.Clock, don
 			g.runner(i, done)
 			fin <- struct{}{}
 		}(i)
-	}
-	log.Info("all tasks done, exiting cleanly. thank you, come again.")
-}
-
-func (g *gofer) runner(i int, done <-chan struct{}) {
-	defer func() {
-		if r := recover(); r != nil {
-			g.Inc("runner", "panicked", 1, 0.1)
-			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			log.Warn("recovered from panic, restarting runner", "stack", r)
-			go g.runner(i, done)
-		}
-	}()
-
-	// tasks only exists to allow shutdown to interrupt waiting for job
-	tasks := make(chan *titan.Job, 1)
-
-	<-done
-	log.Info("shutting down, let all tasks finish! or else...")
-	for i := 1; i <= conf.Concurrency; i++ {
-		<-fin
-		log.Info("task finished", "still_running", conf.Concurrency-i)
 	}
 	log.Info("all tasks done, exiting cleanly. thank you, come again.")
 }
