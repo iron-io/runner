@@ -1,8 +1,6 @@
 package main
 
 import (
-	"io"
-	"io/ioutil"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -62,13 +60,30 @@ func (t *Tasker) IsCancelled(ctx *common.Context, job *titan_go.Job) bool {
 	return wrapper.Job.Status == "error"
 }
 
-func (t *Tasker) Log(ctx *common.Context, job *titan_go.Job, r io.Reader) {
-	bytes, err := ioutil.ReadAll(r)
+func (t *Tasker) Succeeded(ctx *common.Context, job *titan_go.Job, r string) error {
+	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
-		log.Errorln("Error reading log", "err", err)
-		return
+		log.Errorln("Update failed", "job", job.Id, "err", err)
+		return err
 	}
+	log.Infoln("Got back", j)
+	// _, err := t.api.JobIdSuccessPost(job.Id, r)
+	// if err != nil {
+	// 	log.Errorln("JobIdSuccessPost", "jobId", job.Id, "err", err)
+	// }
+	return nil
+}
 
-	log.Infoln("Log is ", string(bytes))
-	log.Errorln("Titan does not support log upload yet!")
+func (t *Tasker) Failed(ctx *common.Context, job *titan_go.Job, reason string, r string) error {
+	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
+	if err != nil {
+		log.Errorln("Update failed", "job", job.Id, "err", err)
+		return err
+	}
+	log.Infoln("Got back", j)
+	// _, err := t.api.JobIdFailPost(job.Id, reason, "" /* details */, r)
+	// if err != nil {
+	// 	log.Errorln("JobIdFailPost", "jobId", job.Id, "err", err)
+	// }
+	return nil
 }

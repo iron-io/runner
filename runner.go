@@ -188,32 +188,57 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 	now := time.Now()
 	job.CompletedAt = now
 
-	// FIXME(nikhil): Will add one to translate all possibilities.
-	if runResult.Status() == "complete" {
-		job.Status = "success"
+	// Docker driver should seek!
+	// This is REALLY stupid. The swagger online generator has obviously not been
+	// tested because it can't generate a correct swagger definition for a form
+	// upload that has a file field. It uses Google's query parser but that
+	// parser does not support encoding os.File. It seems like go-swagger does
+	// this correctly, so I've filed #73. Meanwhile, serialize to a string.
+	log.Seek(0, 0)
+	var b bytes.Buffer
+	io.Copy(&b, log)
+
+	// We can't set job.Reason because Reason is generated as an empty struct for some reason o_O Not looking into this right now.
+	var reason string
+	if runResult.Status() == "success" {
+		g.tasker.Succeeded(ctx, job, b.String())
+		g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
+		return
+	} else if runResult.Status() == "error" {
+		reason = "bad_exit"
+	} else if runResult.Status() == "killed" {
+		reason = "killed"
+	} else if runResult.Status() == "timeout" {
+		reason = "timeout"
+	} else if runResult.Status() == "cancelled" {
+		job.Status = "cancelled"
+		reason = "client_request"
+		// FIXME(nikhil): Implement
+		// g.tasker.Cancelled(ctx, job)
+		return
 	}
 
+	// FIXME(nikhil): Set job error details field.
 	if err := runResult.Error(); err != nil {
-		// FIXME(nikhil): Set job error message.
+		ctx.Debug("Job failure ", err)
 	}
-	// FIXME(nikhil): Maybe add a job field to trace which machine ran it.
-	//job.InstanceId = g.instanceID
 
+	g.tasker.Failed(ctx, job, reason, b.String())
 	g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 
-	err := g.tasker.Update(ctx, job)
-	if err != nil {
-		log.Errorln("failed to update job!")
-		return err
-	}
+	// err := g.tasker.Update(ctx, job)
+	// if err != nil {
+	// 	log.Errorln("failed to update job!")
+	// 	return err
+	// }
 
-	ctx.Debug("uploading log")
-	sw := ctx.Time("upload log")
+	// ctx.Debug("uploading log")
+	// sw := ctx.Time("upload log")
 
-	// Docker driver should seek!
-	logFile.Seek(0, 0)
-	g.tasker.Log(ctx, job, logFile)
-	sw.Stop()
+	// // Docker driver should seek!
+	// logFile.Seek(0, 0)
+	// g.tasker.Log(ctx, job, logFile)
+	// sw.Stop()
 	return nil
 }
 
