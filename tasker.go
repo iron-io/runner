@@ -24,9 +24,9 @@ func NewTasker() *Tasker {
 func (t *Tasker) Job(ctx *common.Context) *titan.Job {
 	var job *titan.Job
 	for {
-		jobs, err := t.api.JobsGet(1)
+		jobs, err := t.api.JobsConsumeGet(1)
 		if err != nil {
-			log.Errorln("Tasker JobsGet", "err", err)
+			log.Errorln("Tasker JobsConsumeGet", "err", err)
 		} else if len(jobs.Jobs) > 0 {
 			job = &jobs.Jobs[0]
 			break
