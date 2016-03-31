@@ -119,6 +119,13 @@ func Run(conf drivercommon.Config, tasker *Tasker, clock gofercommon.Clock, done
 			fin <- struct{}{}
 		}(i)
 	}
+
+	<-done
+	log.Info("shutting down, let all tasks finish! or else...")
+	for i := 1; i <= conf.Concurrency; i++ {
+		<-fin
+		log.Info("task finished", "still_running", conf.Concurrency-i)
+	}
 	log.Info("all tasks done, exiting cleanly. thank you, come again.")
 }
 
