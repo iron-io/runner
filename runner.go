@@ -162,7 +162,7 @@ func (g *gofer) runner(i int, done <-chan struct{}) {
 
 func (g *gofer) logAndLeave(ctx *common.Context, job *titan.Job, msg string, err error) {
 	panic("How do we implement")
-	g.tasker.Update(ctx, job)
+	// TODO: g.tasker.Update(ctx, job)
 	ctx.Error(msg, "err", err)
 }
 
@@ -194,7 +194,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 
 	g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 
-	g.tasker.Update(ctx, job)
+	// TODO: g.tasker.Update(ctx, job)
 
 	ctx.Debug("uploading log")
 	sw := ctx.Time("upload log")
@@ -215,7 +215,7 @@ func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
 	now := g.clock.Now()
 	job.StartedAt = now
 	job.Status = gofercommon.StatusRunning
-	g.tasker.Update(ctx, job)
+	// TODO: g.tasker.Update(ctx, job)
 
 	containerTask := &goferTask{
 		command: "",

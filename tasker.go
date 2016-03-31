@@ -37,12 +37,12 @@ func (t *Tasker) Job(ctx *common.Context) *titan.Job {
 	return job
 }
 
-func (t *Tasker) Update(ctx *common.Context, job *titan.Job) {
-	_, err := t.api.JobIdPatch(job.Id, titan.JobWrapper{*job})
-	if err != nil {
-		log.Errorln("Update failed", "job", job.Id, "err", err)
-	}
-}
+// func (t *Tasker) Update(ctx *common.Context, job *titan.Job) {
+// 	_, err := t.api.JobIdPatch(job.Id, titan.JobWrapper{*job})
+// 	if err != nil {
+// 		log.Errorln("Update failed", "job", job.Id, "err", err)
+// 	}
+// }
 
 func (t *Tasker) RetryTask(ctx *common.Context, job *titan.Job) error {
 	panic("Not implemented Retry")
