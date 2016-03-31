@@ -31,7 +31,12 @@ func main() {
 	v.AutomaticEnv() // picks up env vars automatically
 	err := v.ReadInConfig()
 	if err != nil {
-		log.Fatalln("Error reading configuration", err)
+		if _, ok := err.(viper.UnsupportedConfigError); ok {
+			log.Infoln("Couldn't read config file", err)
+			// ignore
+		} else {
+			log.Fatalln("Error reading config file", err)
+		}
 	}
 
 	config := InitConfig(v)
