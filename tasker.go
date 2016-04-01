@@ -7,22 +7,21 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/go/common"
-	"github.com/iron-io/titan_go"
+	titan_go "github.com/iron-io/titan_go"
 )
 
 type Tasker struct {
-	api *titan.JobsApi
+	api *titan_go.JobsApi
 }
 
 // Titan tasker.
-func NewTasker() *Tasker {
-	// FIXME(nikhil): Build API from path obtained from config.
-	api := titan.NewJobsApiWithBasePath("http://localhost:8080")
+func NewTasker(config *Config) *Tasker {
+	api := titan_go.NewJobsApiWithBasePath(config.ApiUrl)
 	return &Tasker{api}
 }
 
-func (t *Tasker) Job(ctx *common.Context) *titan.Job {
-	var job *titan.Job
+func (t *Tasker) Job(ctx *common.Context) *titan_go.Job {
+	var job *titan_go.Job
 	for {
 		jobs, err := t.api.JobsConsumeGet(1)
 		if err != nil {
@@ -31,24 +30,28 @@ func (t *Tasker) Job(ctx *common.Context) *titan.Job {
 			job = &jobs.Jobs[0]
 			break
 		}
-
 		time.Sleep(1 * time.Second)
 	}
 	return job
 }
 
-// func (t *Tasker) Update(ctx *common.Context, job *titan.Job) {
-// 	_, err := t.api.JobIdPatch(job.Id, titan.JobWrapper{*job})
-// 	if err != nil {
-// 		log.Errorln("Update failed", "job", job.Id, "err", err)
-// 	}
-// }
+func (t *Tasker) Update(ctx *common.Context, job *titan_go.Job) error {
+	log.Debugln("Sending PATCH to update job", job)
+	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
+	if err != nil {
+		log.Errorln("Update failed", "job", job.Id, "err", err)
+		return err
+	}
+	log.Infoln("Got back", j)
+	return nil
+}
 
-func (t *Tasker) RetryTask(ctx *common.Context, job *titan.Job) error {
+// TODO: this should be on server side
+func (t *Tasker) RetryTask(ctx *common.Context, job *titan_go.Job) error {
 	panic("Not implemented Retry")
 }
 
-func (t *Tasker) IsCancelled(ctx *common.Context, job *titan.Job) bool {
+func (t *Tasker) IsCancelled(ctx *common.Context, job *titan_go.Job) bool {
 	wrapper, err := t.api.JobIdGet(job.Id)
 	if err != nil {
 		log.Errorln("JobIdGet from Cancel", "err", err)
@@ -59,7 +62,7 @@ func (t *Tasker) IsCancelled(ctx *common.Context, job *titan.Job) bool {
 	return wrapper.Job.Status == "error"
 }
 
-func (t *Tasker) Log(ctx *common.Context, job *titan.Job, r io.Reader) {
+func (t *Tasker) Log(ctx *common.Context, job *titan_go.Job, r io.Reader) {
 	bytes, err := ioutil.ReadAll(r)
 	if err != nil {
 		log.Errorln("Error reading log", "err", err)

@@ -5,47 +5,53 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/common"
 )
 
 const (
-	configFile  = ".task_config"
-	logFile     = "proc.out"
-	payloadFile = ".task_payload"
-	runtimeDir  = "/mnt"
-	taskDir     = "/task"
+	// configFile  = ".task_config"
+	logFile = "job.log"
+	// payloadFile = ".task_payload"
+	// runtimeDir  = "/mnt"
+	// taskDir     = "/task"
 )
 
-type dockerDriver struct {
-	conf       common.Config
-	docker     *docker.Client
-	hostname   string
-	runtimeDir string
+type DockerDriver struct {
+	conf     *common.Config
+	docker   *docker.Client
+	hostname string
+	// runtimeDir string
 }
 
-func NewDocker(conf common.Config, hostname string) (*dockerDriver, error) {
+func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, err
 	}
 
-	return &dockerDriver{
-		conf:       conf,
-		docker:     docker,
-		hostname:   hostname,
-		runtimeDir: runtimeDir,
+	// create local directory to store log files
+	err = os.Mkdir(conf.JobsDir, 0777)
+	if err != nil {
+		log.Errorln("could not create", conf.JobsDir, "directory!")
+		return nil, err
+	}
+
+	return &DockerDriver{
+		conf:     conf,
+		docker:   docker,
+		hostname: hostname,
 	}, nil
 }
 
-func (drv *dockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
+func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
 	defer os.RemoveAll(drv.taskDir(task))
 
 	if err := drv.ensureTaskDir(task); err != nil {
@@ -102,15 +108,15 @@ func (drv *dockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	}
 }
 
-func (drv *dockerDriver) taskDir(task drivers.ContainerTask) string {
-	return drv.conf.Root + taskDir + "/" + task.Id()
+func (drv *DockerDriver) taskDir(task drivers.ContainerTask) string {
+	return drv.conf.JobsDir + "/" + task.Id()
 }
 
-func (drv *dockerDriver) ensureTaskDir(task drivers.ContainerTask) error {
+func (drv *DockerDriver) ensureTaskDir(task drivers.ContainerTask) error {
 	return os.Mkdir(drv.taskDir(task), 0777)
 }
 
-func (drv *dockerDriver) ensureLogFile(task drivers.ContainerTask) (*os.File, error) {
+func (drv *DockerDriver) ensureLogFile(task drivers.ContainerTask) (*os.File, error) {
 	log, err := os.Create(drv.taskDir(task) + "/" + logFile)
 	if err != nil {
 		return nil, fmt.Errorf("%v %v", "couldn't open task log", err)
@@ -118,14 +124,14 @@ func (drv *dockerDriver) ensureLogFile(task drivers.ContainerTask) (*os.File, er
 	return log, nil
 }
 
-func (drv *dockerDriver) error(err error) *runResult {
+func (drv *DockerDriver) error(err error) *runResult {
 	return &runResult{
 		Err:         err,
 		StatusValue: drivers.StatusError,
 	}
 }
 
-func (drv *dockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
+func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
 	if task.Image() == "" {
 		// TODO support for old
 		return "", errors.New("no image specified, this runner cannot run this")
@@ -140,25 +146,27 @@ func (drv *dockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 
 	hostTaskDir := drv.taskDir(task)
 
-	config := hostTaskDir + "/" + configFile
-	payload := hostTaskDir + "/" + payloadFile
-	err = writeFile(config, task.Config())
-	if err != nil {
-		return "", err
-	}
-	err = writeFile(payload, task.Payload())
-	if err != nil {
-		return "", err
-	}
+	// config := hostTaskDir + "/" + configFile
+	// payload := hostTaskDir + "/" + payloadFile
+	// err = writeFile(config, task.Config())
+	// if err != nil {
+	// return "", err
+	// }
+
+	// err = writeFile(payload, task.Payload())
+	// if err != nil {
+	// return "", err
+	// }
 
 	envvars := make([]string, 0, len(task.EnvVars())+4)
 	for name, val := range task.EnvVars() {
 		envvars = append(envvars, name+"="+val)
 	}
-	envvars = append(envvars, "TASK_ID="+task.Id())
-	envvars = append(envvars, "PAYLOAD_FILE="+runtimePath(payloadFile))
-	envvars = append(envvars, "TASK_DIR="+runtimePath(taskDir))
-	envvars = append(envvars, "CONFIG_FILE="+runtimePath(configFile))
+	envvars = append(envvars, "JOB_ID="+task.Id())
+	envvars = append(envvars, "PAYLOAD="+task.Payload())
+	// envvars = append(envvars, "PAYLOAD_FILE="+runtimePath(payloadFile))
+	// envvars = append(envvars, "TASK_DIR="+runtimePath(taskDir))
+	// envvars = append(envvars, "CONFIG_FILE="+runtimePath(configFile))
 	absTaskDir, err := filepath.Abs(hostTaskDir)
 	if err != nil {
 		return "", err
@@ -173,9 +181,9 @@ func (drv *dockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	return cID, err
 }
 
-func runtimePath(s ...string) string {
-	return path.Join(append([]string{runtimeDir}, s...)...)
-}
+// func runtimePath(s ...string) string {
+// return path.Join(append([]string{runtimeDir}, s...)...)
+// }
 
 func writeFile(name, body string) error {
 	f, err := os.Create(name)
@@ -187,7 +195,7 @@ func writeFile(name, body string) error {
 	return err
 }
 
-func (drv *dockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string) (string, error) {
+func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string) (string, error) {
 	container := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Env:       envvars,
@@ -196,13 +204,13 @@ func (drv *dockerDriver) createContainer(envvars, cmd []string, image string, ab
 			CPUShares: drv.conf.CPUShares,
 			Hostname:  drv.hostname,
 			Image:     image,
-			Volumes: map[string]struct{}{
-				drv.runtimeDir: {},
-			},
+			// Volumes: map[string]struct{}{
+			// drv.runtimeDir: {},
+			// },
 		},
-		HostConfig: &docker.HostConfig{
-			Binds: []string{absTaskDir + ":" + drv.runtimeDir},
-		},
+		// HostConfig: &docker.HostConfig{
+		// Binds: []string{absTaskDir + ":" + drv.runtimeDir},
+		// },
 	}
 
 	c, err := drv.docker.CreateContainer(container)
@@ -227,14 +235,14 @@ func (drv *dockerDriver) createContainer(envvars, cmd []string, image string, ab
 	return c.ID, nil
 }
 
-func (drv *dockerDriver) removeContainer(container string) {
+func (drv *DockerDriver) removeContainer(container string) {
 	// TODO: trap error
 	drv.docker.RemoveContainer(docker.RemoveContainerOptions{
 		ID: container, Force: true, RemoveVolumes: true})
 }
 
 // watch for cancel or timeout and kill process.
-func (drv *dockerDriver) nanny(container string, task drivers.ContainerTask, sentence chan<- string, done chan struct{}, isCancelledSignal chan bool) {
+func (drv *DockerDriver) nanny(container string, task drivers.ContainerTask, sentence chan<- string, done chan struct{}, isCancelledSignal chan bool) {
 	t := time.Duration(drv.conf.DefaultTimeout) * time.Second
 	if task.Timeout() != 0 {
 		t = time.Duration(task.Timeout()) * time.Second
@@ -263,7 +271,7 @@ func (drv *dockerDriver) nanny(container string, task drivers.ContainerTask, sen
 	<-done
 }
 
-func (drv *dockerDriver) status(exitCode int, sentence <-chan string) (string, error) {
+func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, error) {
 	var status string
 	var err error
 	select {
@@ -293,4 +301,4 @@ func (drv *dockerDriver) status(exitCode int, sentence <-chan string) (string, e
 }
 
 // TODO we _sure_ it's dead?
-func (drv *dockerDriver) cancel(container string) { drv.docker.StopContainer(container, 5) }
+func (drv *DockerDriver) cancel(container string) { drv.docker.StopContainer(container, 5) }

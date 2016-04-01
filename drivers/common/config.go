@@ -9,8 +9,7 @@ const (
 )
 
 type Config struct {
-	Concurrency    int    `json:"concurrent_tasks"`
-	Root           string `json:"root"`
+	JobsDir        string `json:"jobs_dir"`
 	Docker         string `json:"docker"`
 	Memory         int64  `json:"memory"`
 	CPUShares      int64  `json:"cpu_shares"`
@@ -18,13 +17,11 @@ type Config struct {
 }
 
 func (c *Config) Defaults() {
-	if c.Concurrency == 0 {
-		c.Concurrency = 5
-	}
-	if c.Root == "" {
-		c.Root = "/mnt"
+	// todo: move these to Viper defaults, see main.go
+	if c.JobsDir == "" {
+		c.JobsDir = "/jobs"
 	} else {
-		c.Root = strings.TrimRight(c.Root, "/")
+		c.JobsDir = strings.TrimRight(c.JobsDir, "/")
 	}
 	if c.Docker == "" {
 		c.Docker = whereisdocker

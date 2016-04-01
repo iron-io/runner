@@ -11,20 +11,32 @@ import (
 	"github.com/spf13/viper"
 )
 
-func InitConfig(v *viper.Viper) drivercommon.Config {
-	config := drivercommon.Config{}
-	config.Concurrency = int(v.GetFloat64("concurrency"))
-	config.Root = v.GetString("root")
-	config.Memory = int64(v.GetInt("memory"))
-	config.CPUShares = int64(v.GetInt("cpu_shares"))
-	config.DefaultTimeout = uint(v.GetInt("timeout"))
+type Config struct {
+	ApiUrl       string
+	Concurrency  int
+	DriverConfig *drivercommon.Config
+}
 
-	config.Defaults()
+func InitConfig(v *viper.Viper) *Config {
+	config := &Config{}
+	apiUrl := v.GetString("API_URL")
+	config.ApiUrl = apiUrl
+	config.Concurrency = v.GetInt("concurrency")
+
+	dconfig := &drivercommon.Config{}
+	dconfig.Memory = int64(v.GetInt("memory"))
+	dconfig.CPUShares = int64(v.GetInt("cpu_shares"))
+	dconfig.DefaultTimeout = uint(v.GetInt("timeout"))
+	dconfig.Defaults()
+	config.DriverConfig = dconfig
+
 	return config
 }
 
 func main() {
 	v := viper.New()
+	v.SetDefault("concurrency", 5)
+	v.SetDefault("API_URL", "http://localhost:8080")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.SetConfigName("config")
 	v.AddConfigPath(".")
@@ -40,7 +52,7 @@ func main() {
 	}
 
 	config := InitConfig(v)
-	tasker := NewTasker()
+	tasker := NewTasker(config)
 
 	done := make(chan struct{}, 1)
 	c := make(chan os.Signal, 1)

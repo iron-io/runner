@@ -12,7 +12,7 @@ const (
 	Docker DriverType = "docker"
 )
 
-func FactoryDriver(driverName DriverType, cfg common.Config, hostname string) (drivers.Driver, error) {
+func FactoryDriver(driverName DriverType, cfg *common.Config, hostname string) (drivers.Driver, error) {
 	switch driverName {
 	case Docker:
 		return docker.NewDocker(cfg, hostname)

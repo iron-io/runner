@@ -12,7 +12,6 @@ import (
 	"github.com/iron-io/go/common"
 	gofercommon "github.com/iron-io/go/runner/gofer/common"
 	"github.com/iron-io/titan/runner/drivers"
-	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/iron-io/titan/runner/drivers/docker"
 	"github.com/iron-io/titan_go"
 	"golang.org/x/net/context"
@@ -47,22 +46,22 @@ func (g *goferTask) Payload() string            { return g.payload }
 func (g *goferTask) Timeout() uint              { return g.timeout }
 
 type gofer struct {
-	conf       drivercommon.Config
+	conf       *Config
 	tasker     *Tasker
 	clock      gofercommon.Clock
 	hostname   string
 	instanceID string
-	container  drivers.Driver
+	driver     drivers.Driver
 	*common.Environment
 }
 
-func newGofer(conf drivercommon.Config, tasker *Tasker, clock gofercommon.Clock, hostname string, container drivers.Driver) (*gofer, error) {
+func newGofer(conf *Config, tasker *Tasker, clock gofercommon.Clock, hostname string, driver drivers.Driver) (*gofer, error) {
 	var err error
 	g := &gofer{
 		conf:        conf,
 		tasker:      tasker,
 		clock:       clock,
-		container:   container,
+		driver:      driver,
 		hostname:    hostname,
 		Environment: common.NewEnvironment(),
 	}
@@ -95,13 +94,13 @@ func instanceID() (string, error) {
 	return buf.String(), nil
 }
 
-func Run(conf drivercommon.Config, tasker *Tasker, clock gofercommon.Clock, done <-chan struct{}) {
+func Run(conf *Config, tasker *Tasker, clock gofercommon.Clock, done <-chan struct{}) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
 	}
 
-	docker, err := docker.NewDocker(conf, hostname)
+	docker, err := docker.NewDocker(conf.DriverConfig, hostname)
 	if err != nil {
 		log.Fatal("couldn't start container driver", "err", err)
 	}
@@ -134,7 +133,7 @@ func (g *gofer) runner(i int, done <-chan struct{}) {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			log.Warn("recovered from panic, restarting runner", "stack", r)
+			log.Warnln("recovered from panic, restarting runner: stack", r)
 			go g.runner(i, done)
 		}
 	}()
@@ -168,13 +167,14 @@ func (g *gofer) runner(i int, done <-chan struct{}) {
 }
 
 func (g *gofer) logAndLeave(ctx *common.Context, job *titan.Job, msg string, err error) {
-	panic("How do we implement")
-	// TODO: g.tasker.Update(ctx, job)
-	ctx.Error(msg, "err", err)
+	g.tasker.Update(ctx, job)
+	// TODO: panic("How do we implement")
+	// ctx.Error(msg, "err", err)
 }
 
 func (g *gofer) recordTaskCompletion(job *titan.Job, status string, duration time.Duration) {
 	statName := fmt.Sprintf("completion.%s", status)
+	// todo: remove project stuff
 	projectStatName := fmt.Sprintf("p.%s.completion.%s", status)
 
 	g.Inc("task", statName, 1, 1.0)
@@ -183,7 +183,7 @@ func (g *gofer) recordTaskCompletion(job *titan.Job, status string, duration tim
 	g.Time("task", projectStatName, duration, 1.0)
 }
 
-func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runResult drivers.RunResult, log *os.File) {
+func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runResult drivers.RunResult, logFile *os.File) error {
 	ctx.Debug("updating task")
 	now := time.Now()
 	job.CompletedAt = now
@@ -201,15 +201,20 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 
 	g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 
-	// TODO: g.tasker.Update(ctx, job)
+	err := g.tasker.Update(ctx, job)
+	if err != nil {
+		log.Errorln("failed to update job!")
+		return err
+	}
 
 	ctx.Debug("uploading log")
 	sw := ctx.Time("upload log")
 
 	// Docker driver should seek!
-	log.Seek(0, 0)
-	g.tasker.Log(ctx, job, log)
+	logFile.Seek(0, 0)
+	g.tasker.Log(ctx, job, logFile)
 	sw.Stop()
+	return nil
 }
 
 func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
@@ -222,7 +227,7 @@ func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
 	now := g.clock.Now()
 	job.StartedAt = now
 	job.Status = gofercommon.StatusRunning
-	// TODO: g.tasker.Update(ctx, job)
+	g.tasker.Update(ctx, job)
 
 	containerTask := &goferTask{
 		command: "",
@@ -234,7 +239,7 @@ func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
 		timeout: uint(job.Timeout),
 	}
 	log.Infoln("About to run", containerTask)
-	runResult := g.container.Run(containerTask, isCancelledChn)
+	runResult := g.driver.Run(containerTask, isCancelledChn)
 	log.Infoln("Run result", "err", runResult.Error(), "status", runResult.Status())
 	log := runResult.Log()
 	defer log.Close()
