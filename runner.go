@@ -11,6 +11,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/go/common"
 	gofercommon "github.com/iron-io/go/runner/gofer/common"
+	"github.com/iron-io/titan/jobserver/models"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/docker"
 	"github.com/iron-io/titan_go"
@@ -194,28 +195,32 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 	// upload that has a file field. It uses Google's query parser but that
 	// parser does not support encoding os.File. It seems like go-swagger does
 	// this correctly, so I've filed #73. Meanwhile, serialize to a string.
-	log.Seek(0, 0)
+	logFile.Seek(0, 0)
 	var b bytes.Buffer
-	io.Copy(&b, log)
+	io.Copy(&b, logFile)
 
 	// We can't set job.Reason because Reason is generated as an empty struct for some reason o_O Not looking into this right now.
 	var reason string
 	if runResult.Status() == "success" {
-		g.tasker.Succeeded(ctx, job, b.String())
-		g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
-		return
+		job.Status = models.StatusSuccess
+		// g.tasker.Succeeded(ctx, job, b.String())
 	} else if runResult.Status() == "error" {
+		job.Status = models.StatusError
 		reason = "bad_exit"
 	} else if runResult.Status() == "killed" {
+		// same as cancelled
+		job.Status = models.StatusCancelled
 		reason = "killed"
 	} else if runResult.Status() == "timeout" {
+		job.Status = models.StatusError
 		reason = "timeout"
 	} else if runResult.Status() == "cancelled" {
-		job.Status = "cancelled"
+		job.Status = models.StatusCancelled
 		reason = "client_request"
 		// FIXME(nikhil): Implement
+		// This should already be cancelled on server side, so might not even need to send back. Only reason would be to show that it may have partially ran?
 		// g.tasker.Cancelled(ctx, job)
-		return
+		// return nil
 	}
 
 	// FIXME(nikhil): Set job error details field.
@@ -223,14 +228,18 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 		ctx.Debug("Job failure ", err)
 	}
 
-	g.tasker.Failed(ctx, job, reason, b.String())
-	g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
+	// g.tasker.Failed(ctx, job, reason, b.String())
+	// g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 
-	// err := g.tasker.Update(ctx, job)
-	// if err != nil {
-	// 	log.Errorln("failed to update job!")
-	// 	return err
-	// }
+	log.Debugln("reason", reason)
+
+	err := g.tasker.Update(ctx, job)
+	if err != nil {
+		log.Errorln("failed to update job!")
+		return err
+	}
+
+	// TODO: deal with log. If it's small enough, just upload with job, if it's big, send to separate endpoint.
 
 	// ctx.Debug("uploading log")
 	// sw := ctx.Time("upload log")
@@ -271,7 +280,8 @@ func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
 
 	if runResult.Error() != nil {
 		job.Status = "error"
-		g.retryTask(ctx, job)
+		// TODO: retries on server side, we just send status back
+		// g.retryTask(ctx, job)
 	}
 
 	g.updateTaskStatusAndLog(ctx, job, runResult, log)
