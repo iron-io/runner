@@ -164,7 +164,11 @@ func (g *gofer) runner(ctx context.Context) {
 	// mean that the goroutine wrapping Job() never shuts down, this is OK since
 	// the process is about to quit.
 	tasks := make(chan *titan.Job, 1)
-	go func() { tasks <- g.tasker.Job() }()
+	go func() {
+		for {
+			tasks <- g.tasker.Job()
+		}
+	}()
 	for {
 		g.Debug("getting task")
 		sw := g.timer("get task")
