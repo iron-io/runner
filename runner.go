@@ -9,8 +9,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/go/common"
-	gofercommon "github.com/iron-io/go/runner/gofer/common"
+	"github.com/iron-io/titan/common"
+	"github.com/iron-io/titan/common/stats"
 	"github.com/iron-io/titan/jobserver/models"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/docker"
@@ -49,14 +49,15 @@ func (g *goferTask) Timeout() uint              { return g.timeout }
 type gofer struct {
 	conf       *Config
 	tasker     *Tasker
-	clock      gofercommon.Clock
+	clock      common.Clock
 	hostname   string
 	instanceID string
 	driver     drivers.Driver
 	*common.Environment
+	log.FieldLogger
 }
 
-func newGofer(conf *Config, tasker *Tasker, clock gofercommon.Clock, hostname string, driver drivers.Driver) (*gofer, error) {
+func newGofer(conf *Config, tasker *Tasker, clock common.Clock, hostname string, driver drivers.Driver, logger log.FieldLogger) (*gofer, error) {
 	var err error
 	g := &gofer{
 		conf:        conf,
@@ -64,7 +65,10 @@ func newGofer(conf *Config, tasker *Tasker, clock gofercommon.Clock, hostname st
 		clock:       clock,
 		driver:      driver,
 		hostname:    hostname,
-		Environment: common.NewEnvironment(),
+		FieldLogger: logger,
+		Environment: common.NewEnvironment(func(e *common.Environment) {
+			// Put stats initialization based off config over here.
+		}),
 	}
 	g.instanceID, err = instanceID()
 	if err != nil {
@@ -72,6 +76,18 @@ func newGofer(conf *Config, tasker *Tasker, clock gofercommon.Clock, hostname st
 	}
 
 	return g, nil
+}
+
+type Timer struct {
+	*stats.Timer
+}
+
+func (t *Timer) Stop() {
+	t.Measure()
+}
+
+func (g *gofer) timer(name string) *Timer {
+	return &Timer{g.NewTimer("runner", name, 0.1)}
 }
 
 // instanceID returns the EC2 instance ID if we're on EC2.
@@ -95,7 +111,7 @@ func instanceID() (string, error) {
 	return buf.String(), nil
 }
 
-func Run(conf *Config, tasker *Tasker, clock gofercommon.Clock, done <-chan struct{}) {
+func Run(conf *Config, tasker *Tasker, clock common.Clock, ctx context.Context) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
@@ -106,21 +122,24 @@ func Run(conf *Config, tasker *Tasker, clock gofercommon.Clock, done <-chan stru
 		log.Fatal("couldn't start container driver", "err", err)
 	}
 
-	g, err := newGofer(conf, tasker, clock, hostname, docker)
-	if err != nil {
-		log.Fatal("couldn't start runner", "err", err)
-	}
-
 	log.Infoln("starting runners", "n", conf.Concurrency)
 	fin := make(chan struct{}, conf.Concurrency)
 	for i := 0; i < conf.Concurrency; i++ {
 		go func(i int) {
-			g.runner(i, done)
-			fin <- struct{}{}
+			defer func() {
+				fin <- struct{}{}
+			}()
+			g, err := newGofer(conf, tasker, clock, hostname, docker,
+				log.WithFields(log.Fields{"runner_id": i}))
+			if err != nil {
+				log.Errorln("Error creating runner", i, "err", err)
+				return
+			}
+			g.runner(ctx)
 		}(i)
 	}
 
-	<-done
+	<-ctx.Done()
 	log.Info("shutting down, let all tasks finish! or else...")
 	for i := 1; i <= conf.Concurrency; i++ {
 		<-fin
@@ -129,46 +148,49 @@ func Run(conf *Config, tasker *Tasker, clock gofercommon.Clock, done <-chan stru
 	log.Info("all tasks done, exiting cleanly. thank you, come again.")
 }
 
-func (g *gofer) runner(i int, done <-chan struct{}) {
+func (g *gofer) runner(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
 			log.Warnln("recovered from panic, restarting runner: stack", r)
-			go g.runner(i, done)
+			go g.runner(ctx)
 		}
 	}()
 
-	// tasks only exists to allow shutdown to interrupt waiting for job
+	// Job() blocks indefinitely until it can get a job. We want to respect
+	// `ctx.Done()` for shutdowns, so we cannot directly stick Job() into the
+	// select. We use this channel and goroutine to get around it.  This does
+	// mean that the goroutine wrapping Job() never shuts down, this is OK since
+	// the process is about to quit.
 	tasks := make(chan *titan.Job, 1)
+	go func() { tasks <- g.tasker.Job() }()
 	for {
-		ctx := common.NewContext(g.Environment, "runner", uint64(i))
-		ctx.Debug("getting task")
-		sw := ctx.Time("get task")
+		g.Debug("getting task")
+		sw := g.timer("get task")
 		select {
-		case <-done:
+		case <-ctx.Done():
 			return
 		default: // don't spawn getting a job if we're done
 			select {
-			case <-done:
+			case <-ctx.Done():
 				return
-			case tasks <- g.tasker.Job(ctx):
+			case task := <-tasks:
 				sw.Stop()
-				task := <-tasks // never blocks
-				ctx.Debug("starting task", "id", task.Id)
+				g.Debug("starting job", "job_id", task.Id)
 
-				sw = ctx.Time("run task")
+				sw = g.timer("run_job")
 				g.runTask(ctx, task)
 				sw.Stop()
 
-				ctx.Debug("task finished", "id", task.Id)
+				g.Debug("job finished", "job_id", task.Id)
 			}
 		}
 	}
 }
 
-func (g *gofer) logAndLeave(ctx *common.Context, job *titan.Job, msg string, err error) {
-	g.tasker.Update(ctx, job)
+func (g *gofer) logAndLeave(ctx context.Context, job *titan.Job, msg string, err error) {
+	g.tasker.Update(job)
 	// TODO: panic("How do we implement")
 	// ctx.Error(msg, "err", err)
 }
@@ -184,8 +206,8 @@ func (g *gofer) recordTaskCompletion(job *titan.Job, status string, duration tim
 	g.Time("task", projectStatName, duration, 1.0)
 }
 
-func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runResult drivers.RunResult, logFile *os.File) error {
-	ctx.Debug("updating task")
+func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *titan.Job, runResult drivers.RunResult, logFile *os.File) error {
+	g.Debug("updating task")
 	now := time.Now()
 	job.CompletedAt = now
 
@@ -203,7 +225,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 	var reason string
 	if runResult.Status() == "success" {
 		job.Status = models.StatusSuccess
-		// g.tasker.Succeeded(ctx, job, b.String())
+		// g.tasker.Succeeded( job, b.String())
 	} else if runResult.Status() == "error" {
 		job.Status = models.StatusError
 		reason = "bad_exit"
@@ -219,21 +241,21 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 		reason = "client_request"
 		// FIXME(nikhil): Implement
 		// This should already be cancelled on server side, so might not even need to send back. Only reason would be to show that it may have partially ran?
-		// g.tasker.Cancelled(ctx, job)
+		// g.tasker.Cancelled( job)
 		// return nil
 	}
 
 	// FIXME(nikhil): Set job error details field.
 	if err := runResult.Error(); err != nil {
-		ctx.Debug("Job failure ", err)
+		g.Debug("Job failure ", err)
 	}
 
-	// g.tasker.Failed(ctx, job, reason, b.String())
+	// g.tasker.Failed( job, reason, b.String())
 	// g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 
 	log.Debugln("reason", reason)
 
-	err := g.tasker.Update(ctx, job)
+	err := g.tasker.Update(job)
 	if err != nil {
 		log.Errorln("failed to update job!")
 		return err
@@ -241,27 +263,28 @@ func (g *gofer) updateTaskStatusAndLog(ctx *common.Context, job *titan.Job, runR
 
 	// TODO: deal with log. If it's small enough, just upload with job, if it's big, send to separate endpoint.
 
-	// ctx.Debug("uploading log")
+	// g.Debug("uploading log")
 	// sw := ctx.Time("upload log")
 
 	// // Docker driver should seek!
 	// logFile.Seek(0, 0)
-	// g.tasker.Log(ctx, job, logFile)
+	// g.tasker.Log( job, logFile)
 	// sw.Stop()
 	return nil
 }
 
-func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
+func (g *gofer) runTask(ctx context.Context, job *titan.Job) {
+	// We need this channel until the shared driver code can work with context.Context.
 	isCancelledChn := make(chan bool)
-	isCancelledCtx, isCancelledStopSignal := context.WithCancel(context.Background())
+	isCancelledCtx, isCancelledStopSignal := context.WithCancel(ctx)
 	defer isCancelledStopSignal()
-	go g.emitCancellationSignal(ctx, job, isCancelledCtx, isCancelledChn)
+	go g.emitCancellationSignal(isCancelledCtx, job, isCancelledChn)
 
-	ctx.Debug("setting task status to running", "task_id", job.Id)
+	g.Debug("setting task status to running", "job_id", job.Id)
 	now := g.clock.Now()
 	job.StartedAt = now
-	job.Status = gofercommon.StatusRunning
-	g.tasker.Update(ctx, job)
+	job.Status = models.StatusRunning
+	g.tasker.Update(job)
 
 	containerTask := &goferTask{
 		command: "",
@@ -287,26 +310,26 @@ func (g *gofer) runTask(ctx *common.Context, job *titan.Job) {
 	g.updateTaskStatusAndLog(ctx, job, runResult, log)
 }
 
-func (g *gofer) emitCancellationSignal(ctx *common.Context, job *titan.Job, isCancelledCtx context.Context, isCancelled chan bool) {
+func (g *gofer) emitCancellationSignal(ctx context.Context, job *titan.Job, isCancelled chan bool) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Errorln("emitCancellationSignal panic", e)
-			go g.emitCancellationSignal(ctx, job, isCancelledCtx, isCancelled)
+			go g.emitCancellationSignal(ctx, job, isCancelled)
 		}
 
 	}()
 	for {
-		ic := g.tasker.IsCancelled(ctx, job)
+		ic := g.tasker.IsCancelled(job)
 		if ic {
 			select {
-			case <-isCancelledCtx.Done():
+			case <-ctx.Done():
 				return
 			case isCancelled <- true:
 				return
 			}
 		} else {
 			select {
-			case <-isCancelledCtx.Done():
+			case <-ctx.Done():
 				return
 			case <-g.clock.After(5 * time.Second):
 			}
@@ -314,12 +337,12 @@ func (g *gofer) emitCancellationSignal(ctx *common.Context, job *titan.Job, isCa
 	}
 }
 
-func (g *gofer) retryTask(ctx *common.Context, job *titan.Job) {
+func (g *gofer) retryTask(ctx context.Context, job *titan.Job) {
 	// FIXME(nikhil): Handle retry count.
 	// FIXME(nikhil): Handle retry delay.
-	err := g.tasker.RetryTask(ctx, job)
+	err := g.tasker.RetryTask(job)
 	if err != nil {
-		ctx.Error("unable to get retry task", "err", err, "task_id", job)
+		g.Error("unable to get retry task", "err", err, "job_id", job)
 		return
 	}
 }

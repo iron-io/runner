@@ -9,6 +9,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/spf13/viper"
+	"golang.org/x/net/context"
 )
 
 type Config struct {
@@ -24,6 +25,7 @@ func InitConfig(v *viper.Viper) *Config {
 	config.Concurrency = v.GetInt("concurrency")
 
 	dconfig := &drivercommon.Config{}
+	dconfig.JobsDir = v.GetString("jobs_dir")
 	dconfig.Memory = int64(v.GetInt("memory"))
 	dconfig.CPUShares = int64(v.GetInt("cpu_shares"))
 	dconfig.DefaultTimeout = uint(v.GetInt("timeout"))
@@ -54,14 +56,14 @@ func main() {
 	config := InitConfig(v)
 	tasker := NewTasker(config)
 
-	done := make(chan struct{}, 1)
+	ctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGQUIT)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 	go func() {
 		sig := <-c
 		log.Info("received signal", "signal", sig)
-		close(done)
+		cancel()
 	}()
 
-	Run(config, tasker, BoxTime{}, done)
+	Run(config, tasker, BoxTime{}, ctx)
 }

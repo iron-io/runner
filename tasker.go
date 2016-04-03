@@ -4,7 +4,6 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/go/common"
 	titan_go "github.com/iron-io/titan_go"
 )
 
@@ -18,7 +17,7 @@ func NewTasker(config *Config) *Tasker {
 	return &Tasker{api}
 }
 
-func (t *Tasker) Job(ctx *common.Context) *titan_go.Job {
+func (t *Tasker) Job() *titan_go.Job {
 	var job *titan_go.Job
 	for {
 		jobs, err := t.api.JobsConsumeGet(1)
@@ -33,7 +32,7 @@ func (t *Tasker) Job(ctx *common.Context) *titan_go.Job {
 	return job
 }
 
-func (t *Tasker) Update(ctx *common.Context, job *titan_go.Job) error {
+func (t *Tasker) Update(job *titan_go.Job) error {
 	log.Debugln("Sending PATCH to update job", job)
 	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
@@ -45,11 +44,11 @@ func (t *Tasker) Update(ctx *common.Context, job *titan_go.Job) error {
 }
 
 // TODO: this should be on server side
-func (t *Tasker) RetryTask(ctx *common.Context, job *titan_go.Job) error {
+func (t *Tasker) RetryTask(job *titan_go.Job) error {
 	panic("Not implemented Retry")
 }
 
-func (t *Tasker) IsCancelled(ctx *common.Context, job *titan_go.Job) bool {
+func (t *Tasker) IsCancelled(job *titan_go.Job) bool {
 	wrapper, err := t.api.JobIdGet(job.Id)
 	if err != nil {
 		log.Errorln("JobIdGet from Cancel", "err", err)
@@ -60,7 +59,7 @@ func (t *Tasker) IsCancelled(ctx *common.Context, job *titan_go.Job) bool {
 	return wrapper.Job.Status == "error"
 }
 
-func (t *Tasker) Succeeded(ctx *common.Context, job *titan_go.Job, r string) error {
+func (t *Tasker) Succeeded(job *titan_go.Job, r string) error {
 	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
 		log.Errorln("Update failed", "job", job.Id, "err", err)
@@ -74,7 +73,7 @@ func (t *Tasker) Succeeded(ctx *common.Context, job *titan_go.Job, r string) err
 	return nil
 }
 
-func (t *Tasker) Failed(ctx *common.Context, job *titan_go.Job, reason string, r string) error {
+func (t *Tasker) Failed(job *titan_go.Job, reason string, r string) error {
 	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
 		log.Errorln("Update failed", "job", job.Id, "err", err)
