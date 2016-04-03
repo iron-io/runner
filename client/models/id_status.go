@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 
 	strfmt "github.com/go-swagger/go-swagger/strfmt"
-	"github.com/go-swagger/go-swagger/swag"
 
 	"github.com/go-swagger/go-swagger/errors"
 	"github.com/go-swagger/go-swagger/httpkit/validate"
@@ -61,8 +60,10 @@ type IDStatus struct {
 	  - client_request - Request was cancelled by a client. See "details" for any
 	    details.
 
+
+	Required: true
 	*/
-	Status *string `json:"status,omitempty"`
+	Status string `json:"status"`
 }
 
 // Validate validates this id status
@@ -114,11 +115,11 @@ func (m *IDStatus) validateStatusEnum(path, location string, value string) error
 
 func (m *IDStatus) validateStatus(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Status) { // not required
-		return nil
+	if err := validate.RequiredString("status", "body", string(m.Status)); err != nil {
+		return err
 	}
 
-	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
+	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
 	}
 

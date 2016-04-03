@@ -290,7 +290,7 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	now := g.clock.Now()
 	job.StartedAt = new(strfmt.DateTime)
 	*job.StartedAt = strfmt.DateTime(now)
-	*job.Status = models.StatusRunning
+	job.Status = models.StatusRunning
 	g.tasker.Update(job)
 
 	containerTask := &goferTask{
@@ -298,7 +298,7 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 		config:  "",
 		envVars: map[string]string{},
 		id:      job.ID,
-		image:   *job.Image,
+		image:   job.Image,
 		timeout: uint(*job.Timeout),
 	}
 	if job.Payload != nil {
@@ -311,7 +311,7 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	log := runResult.Log()
 
 	if runResult.Error() != nil {
-		*job.Status = "error"
+		job.Status = "error"
 		// TODO: retries on server side, we just send status back
 		// g.retryTask(ctx, job)
 	}

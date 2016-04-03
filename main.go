@@ -35,6 +35,9 @@ func InitConfig(v *viper.Viper) *Config {
 	return config
 }
 
+// Put generated client inside ./client and call the API package 'titan'
+//go:generate swagger generate client -t ./client -f ../jobserver/swagger/api.yml -c titan
+
 func main() {
 	v := viper.New()
 	v.SetDefault("concurrency", 5)

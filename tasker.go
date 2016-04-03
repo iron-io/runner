@@ -68,7 +68,7 @@ func (t *Tasker) IsCancelled(job *client_models.Job) bool {
 		return false
 	}
 
-	return *wrapper.Payload.Job.Status == "cancelled"
+	return wrapper.Payload.Job.Status == "cancelled"
 }
 
 func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {

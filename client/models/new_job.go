@@ -22,8 +22,10 @@ type NewJob struct {
 	Delay *int32 `json:"delay,omitempty"`
 
 	/* Name of image to use.
-	 */
-	Image *string `json:"image,omitempty"`
+
+	Required: true
+	*/
+	Image string `json:"image"`
 
 	/* Number of automatic retries this job is allowed. A retry will be attempted if a task fails. Max 25.
 	Automatic retries are performed by titan when a task reaches a failed state and has `max_retries` > 0. A retry is performed by queueing a new job with the same image id and payload. The new job's max_retries is one less than the original. The new job's `retry_of` field is set to the original Job ID.  Titan will delay the new job for retries_delay seconds before queueing it. Cancelled or successful tasks are never automatically retried.
@@ -53,6 +55,11 @@ type NewJob struct {
 func (m *NewJob) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateImage(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if err := m.validatePayload(formats); err != nil {
 		// prop
 		res = append(res, err)
@@ -61,6 +68,15 @@ func (m *NewJob) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *NewJob) validateImage(formats strfmt.Registry) error {
+
+	if err := validate.RequiredString("image", "body", string(m.Image)); err != nil {
+		return err
+	}
+
 	return nil
 }
 
