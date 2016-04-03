@@ -52,7 +52,8 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 }
 
 func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
-	defer os.RemoveAll(drv.taskDir(task))
+	// FIXME(nikhil): Can't remove this, log file in there.
+	//defer os.RemoveAll(drv.taskDir(task))
 
 	if err := drv.ensureTaskDir(task); err != nil {
 		return drv.error(err)

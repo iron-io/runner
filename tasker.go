@@ -1,32 +1,39 @@
 package main
 
 import (
+	"io/ioutil"
+	"os"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	titan_go "github.com/iron-io/titan_go"
+	httptransport "github.com/go-swagger/go-swagger/httpkit/client"
+	strfmt "github.com/go-swagger/go-swagger/strfmt"
+	client_models "github.com/iron-io/titan/runner/client/models"
+	titan_client "github.com/iron-io/titan/runner/client/titan"
+	"github.com/iron-io/titan/runner/client/titan/jobs"
 )
 
 type Tasker struct {
-	api *titan_go.JobsApi
-	log log.FieldLogger
+	api   *titan_client.Titan
+	dummy os.File
 }
 
 // Titan tasker.
 func NewTasker(config *Config, log log.FieldLogger) *Tasker {
-	api := titan_go.NewJobsApiWithBasePath(config.ApiUrl)
-	return &Tasker{api, log}
+	api := titan_client.New(httptransport.New("localhost:8080", "/v1", []string{"http"}), strfmt.Default)
+	f, _ := ioutil.TempFile("", "crap-")
+	return &Tasker{api, *f}
 }
 
-func (t *Tasker) Job() *titan_go.Job {
+func (t *Tasker) Job() *client_models.Job {
 	l := t.log.WithField("action", "DequeueJob")
-	var job *titan_go.Job
+	var job *client_models.Job
 	for {
-		jobs, err := t.api.JobsGet(1)
+		jobs, err := t.api.Jobs.GetJobsConsume(jobs.NewGetJobsConsumeParams())
 		if err != nil {
 			l.WithError(err).Errorln("dequeue job from api")
-		} else if len(jobs.Jobs) > 0 {
-			job = &jobs.Jobs[0]
+		} else if len(jobs.Payload.Jobs) > 0 && jobs.Payload.Jobs[0] != nil {
+			job = jobs.Payload.Jobs[0]
 			break
 		}
 		time.Sleep(1 * time.Second)
@@ -34,13 +41,13 @@ func (t *Tasker) Job() *titan_go.Job {
 	return job
 }
 
-func (t *Tasker) Update(job *titan_go.Job) error {
+func (t *Tasker) Update(job *client_models.Job) error {
 	l := t.log.WithFields(log.Fields{
 		"action": "UpdateJob",
 		"job_id": job.Id,
 	})
 	l.Debugln("Sending PATCH to update job", job)
-	j, err := t.api.GroupsGroupNameJobsIdPatch(job.GroupName, job.Id, titan_go.JobWrapper{*job})
+	j, err := t.api.Jobs.PatchJobID(jobs.NewPatchJobIDParams().WithID(job.ID).WithBody(&client_models.JobWrapper{job}))
 	if err != nil {
 		l.WithError(err).Errorln("Update failed")
 		return err
@@ -50,45 +57,50 @@ func (t *Tasker) Update(job *titan_go.Job) error {
 }
 
 // TODO: this should be on server side
-func (t *Tasker) RetryTask(job *titan_go.Job) error {
+func (t *Tasker) RetryTask(job *client_models.Job) error {
 	panic("Not implemented Retry")
 }
 
-func (t *Tasker) IsCancelled(job *titan_go.Job) bool {
-	wrapper, err := t.api.GroupsGroupNameJobsIdGet(job.GroupName, job.Id)
+func (t *Tasker) IsCancelled(job *client_models.Job) bool {
+	wrapper, err := t.api.Jobs.GetJobID(jobs.NewGetJobIDParams().WithID(job.ID))
 	if err != nil {
 		log.Errorln("JobIdGet from Cancel", "err", err)
 		return false
 	}
 
-	// FIXME(nikhil) Current branch does not capture cancellation.
-	return wrapper.Job.Status == "error"
+	return *wrapper.Payload.Job.Status == "cancelled"
 }
 
-func (t *Tasker) Succeeded(job *titan_go.Job, r string) error {
-	j, err := t.api.GroupsGroupNameJobsIdPatch(job.GroupName, job.Id, titan_go.JobWrapper{*job})
-	if err != nil {
-		log.Errorln("Update failed", "job", job.Id, "err", err)
-		return err
+func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
+	param := jobs.NewPostJobIDSuccessParams().WithID(job.ID)
+	if r != nil {
+		param = param.WithLog(*r)
+	} else {
+		param = param.WithLog(t.dummy)
 	}
-	log.Infoln("Got back", j)
-	// _, err := t.api.JobIdSuccessPost(job.Id, r)
-	// if err != nil {
-	// 	log.Errorln("JobIdSuccessPost", "jobId", job.Id, "err", err)
-	// }
+	_, err := t.api.Jobs.PostJobIDSuccess(param)
+	if err != nil {
+		log.Errorln("JobIdSuccessPost", "jobId", job.ID, "err", err)
+	}
 	return nil
 }
 
-func (t *Tasker) Failed(job *titan_go.Job, reason string, r string) error {
-	j, err := t.api.GroupsGroupNameJobsIdPatch(job.GroupName, job.Id, titan_go.JobWrapper{*job})
-	if err != nil {
-		log.Errorln("Update failed", "job", job.Id, "err", err)
-		return err
+func (t *Tasker) Failed(job *client_models.Job, reason string, r *os.File) error {
+	param := jobs.NewPostJobIDFailParams().WithID(job.ID).WithReason(reason)
+	if r != nil {
+		param = param.WithLog(*r)
+	} else {
+		param = param.WithLog(t.dummy)
 	}
-	log.Infoln("Got back", j)
-	// _, err := t.api.JobIdFailPost(job.Id, reason, "" /* details */, r)
-	// if err != nil {
-	// 	log.Errorln("JobIdFailPost", "jobId", job.Id, "err", err)
-	// }
+
+	_, err := t.api.Jobs.PostJobIDFail(param)
+	if err != nil {
+		log.Errorln("JobIdFailPost", "jobId", job.ID, "err", err)
+	}
+	return nil
+}
+
+func (t *Tasker) Log(job *client_models.Job, logFile *os.File) error {
+	panic("Not implemented")
 	return nil
 }
