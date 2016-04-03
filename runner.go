@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	strfmt "github.com/go-swagger/go-swagger/strfmt"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/common/stats"
 	"github.com/iron-io/titan/jobserver/models"
@@ -219,8 +220,6 @@ func (g *gofer) recordTaskCompletion(job *client_models.Job, status string, dura
 // This will close logFile
 func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.Job, runResult drivers.RunResult, logFile *os.File) error {
 	g.Debug("updating task")
-	//now := time.Now()
-	//job.CompletedAt = now
 
 	// Docker driver should seek!
 	// This is REALLY stupid. The swagger online generator has obviously not been
@@ -288,8 +287,9 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	go g.emitCancellationSignal(isCancelledCtx, job, isCancelledChn)
 
 	g.Debug("setting task status to running", "job_id", job.ID)
-	//now := g.clock.Now()
-	//job.StartedAt = now
+	now := g.clock.Now()
+	job.StartedAt = new(strfmt.DateTime)
+	*job.StartedAt = strfmt.DateTime(now)
 	*job.Status = models.StatusRunning
 	g.tasker.Update(job)
 
