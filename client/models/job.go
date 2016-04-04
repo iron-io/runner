@@ -21,15 +21,18 @@ type Job struct {
 
 	/* Time when job completed, whether it was successul or failed. Always in UTC.
 	 */
-	CompletedAt *strfmt.DateTime `json:"completed_at,omitempty"`
+	CompletedAt strfmt.DateTime `json:"completed_at,omitempty"`
 
 	/* Time when job was submitted. Always in UTC.
-	 */
-	CreatedAt *strfmt.DateTime `json:"created_at,omitempty"`
+
+	Read Only: true
+	*/
+	CreatedAt strfmt.DateTime `json:"created_at,omitempty"`
 
 	/* Image to execute to run this Job. Get details via the /image/{id} endpoint.
 
 	Required: true
+	Read Only: true
 	*/
 	ImageID string `json:"image_id"`
 
@@ -39,15 +42,17 @@ type Job struct {
 
 	/* If this field is set, then this job was retried by the job referenced in this field.
 	 */
-	RetryID *string `json:"retry_id,omitempty"`
+	RetryID string `json:"retry_id,omitempty"`
 
 	/* If this field is set, then this job is a retry of the ID in this field.
-	 */
-	RetryOf *string `json:"retry_of,omitempty"`
+
+	Read Only: true
+	*/
+	RetryOf string `json:"retry_of,omitempty"`
 
 	/* Time when job started execution. Always in UTC.
 	 */
-	StartedAt *strfmt.DateTime `json:"started_at,omitempty"`
+	StartedAt strfmt.DateTime `json:"started_at,omitempty"`
 }
 
 // Validate validates this job

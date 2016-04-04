@@ -12,7 +12,7 @@ import (
 	"github.com/go-swagger/go-swagger/httpkit/validate"
 )
 
-/*IDStatus id status
+/*IDStatus Id status
 
 swagger:model IdStatus
 */
@@ -21,6 +21,7 @@ type IDStatus struct {
 	/* Unique identifier representing a specific job.
 
 	Required: true
+	Read Only: true
 	*/
 	ID string `json:"id"`
 
@@ -62,11 +63,12 @@ type IDStatus struct {
 
 
 	Required: true
+	Read Only: true
 	*/
 	Status string `json:"status"`
 }
 
-// Validate validates this id status
+// Validate validates this Id status
 func (m *IDStatus) Validate(formats strfmt.Registry) error {
 	var res []error
 
@@ -97,6 +99,7 @@ func (m *IDStatus) validateID(formats strfmt.Registry) error {
 
 var idStatusTypeStatusPropEnum []interface{}
 
+// prop value enum
 func (m *IDStatus) validateStatusEnum(path, location string, value string) error {
 	if idStatusTypeStatusPropEnum == nil {
 		var res []string
@@ -119,6 +122,7 @@ func (m *IDStatus) validateStatus(formats strfmt.Registry) error {
 		return err
 	}
 
+	// value enum
 	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
 	}

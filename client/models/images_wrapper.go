@@ -46,11 +46,8 @@ func (m *ImagesWrapper) validateImages(formats strfmt.Registry) error {
 
 	for i := 0; i < len(m.Images); i++ {
 
-		if m.Images[i] != nil {
-
-			if err := m.Images[i].Validate(formats); err != nil {
-				return err
-			}
+		if err := m.Images[i].Validate(formats); err != nil {
+			return err
 		}
 
 	}

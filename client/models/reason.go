@@ -46,6 +46,7 @@ func (m Reason) validateReasonEnum(path, location string, value Reason) error {
 func (m Reason) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// value enum
 	if err := m.validateReasonEnum("", "body", m); err != nil {
 		return err
 	}

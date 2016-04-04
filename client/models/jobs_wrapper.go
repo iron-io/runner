@@ -50,11 +50,8 @@ func (m *JobsWrapper) validateJobs(formats strfmt.Registry) error {
 
 	for i := 0; i < len(m.Jobs); i++ {
 
-		if m.Jobs[i] != nil {
-
-			if err := m.Jobs[i].Validate(formats); err != nil {
-				return err
-			}
+		if err := m.Jobs[i].Validate(formats); err != nil {
+			return err
 		}
 
 	}

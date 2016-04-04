@@ -26,7 +26,7 @@ type PostJobIDCancelParams struct {
 	  Human-readable detailed message explaining cancellation reason.
 
 	*/
-	Details string
+	Details *string
 	/*ID
 	  Job id
 
@@ -35,7 +35,7 @@ type PostJobIDCancelParams struct {
 }
 
 // WithDetails adds the details to the post job ID cancel params
-func (o *PostJobIDCancelParams) WithDetails(details string) *PostJobIDCancelParams {
+func (o *PostJobIDCancelParams) WithDetails(details *string) *PostJobIDCancelParams {
 	o.Details = details
 	return o
 }

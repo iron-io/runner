@@ -288,8 +288,7 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 
 	g.Debug("setting task status to running", "job_id", job.ID)
 	now := g.clock.Now()
-	job.StartedAt = new(strfmt.DateTime)
-	*job.StartedAt = strfmt.DateTime(now)
+	job.StartedAt = strfmt.DateTime(now)
 	job.Status = models.StatusRunning
 	g.tasker.Update(job)
 
@@ -298,12 +297,10 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 		config:  "",
 		envVars: map[string]string{},
 		id:      job.ID,
-		image:   job.Image,
+		image:   *job.Image,
 		timeout: uint(*job.Timeout),
 	}
-	if job.Payload != nil {
-		containerTask.payload = *job.Payload
-	}
+	containerTask.payload = job.Payload
 
 	log.Infoln("About to run", containerTask)
 	runResult := g.driver.Run(containerTask, isCancelledChn)

@@ -19,13 +19,14 @@ type NewJob struct {
 
 	/* Number of seconds to wait before queueing the job for consumption for the first time. Must be a positive integer. Jobs with a delay start in state "delayed" and transition to "running" after delay seconds.
 	 */
-	Delay *int32 `json:"delay,omitempty"`
+	Delay int32 `json:"delay,omitempty"`
 
 	/* Name of image to use.
 
 	Required: true
+	Min Length: 1
 	*/
-	Image string `json:"image"`
+	Image *string `json:"image"`
 
 	/* Number of automatic retries this job is allowed. A retry will be attempted if a task fails. Max 25.
 	Automatic retries are performed by titan when a task reaches a failed state and has `max_retries` > 0. A retry is performed by queueing a new job with the same image id and payload. The new job's max_retries is one less than the original. The new job's `retry_of` field is set to the original Job ID.  Titan will delay the new job for retries_delay seconds before queueing it. Cancelled or successful tasks are never automatically retried.
@@ -36,11 +37,13 @@ type NewJob struct {
 
 	Max Length: 268435456
 	*/
-	Payload *string `json:"payload,omitempty"`
+	Payload string `json:"payload,omitempty"`
 
 	/* Priority of the job. Higher has more priority. 3 levels from 0-2. Jobs at same priority are processed in FIFO order.
-	 */
-	Priority *int32 `json:"priority,omitempty"`
+
+	Required: true
+	*/
+	Priority *int32 `json:"priority"`
 
 	/* Time in seconds to wait before retrying the job. Must be a non-negative integer.
 	 */
@@ -65,6 +68,11 @@ func (m *NewJob) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validatePriority(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -73,7 +81,11 @@ func (m *NewJob) Validate(formats strfmt.Registry) error {
 
 func (m *NewJob) validateImage(formats strfmt.Registry) error {
 
-	if err := validate.RequiredString("image", "body", string(m.Image)); err != nil {
+	if err := validate.Required("image", "body", m.Image); err != nil {
+		return err
+	}
+
+	if err := validate.MinLength("image", "body", string(*m.Image), 1); err != nil {
 		return err
 	}
 
@@ -86,7 +98,16 @@ func (m *NewJob) validatePayload(formats strfmt.Registry) error {
 		return nil
 	}
 
-	if err := validate.MaxLength("payload", "body", string(*m.Payload), 268435456); err != nil {
+	if err := validate.MaxLength("payload", "body", string(m.Payload), 268435456); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *NewJob) validatePriority(formats strfmt.Registry) error {
+
+	if err := validate.Required("priority", "body", m.Priority); err != nil {
 		return err
 	}
 
