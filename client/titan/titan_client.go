@@ -22,7 +22,7 @@ func NewHTTPClient(formats strfmt.Registry) *Titan {
 	if formats == nil {
 		formats = strfmt.Default
 	}
-	transport := httptransport.New("localhost:8080", "/", []string{"http", "https"})
+	transport := httptransport.New("localhost:8080", "/v1", []string{"http", "https"})
 	return New(transport, formats)
 }
 
