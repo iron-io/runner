@@ -122,15 +122,18 @@ func Run(conf *Config, tasker *Tasker, clock common.Clock, ctx context.Context) 
 		log.Fatal("couldn't start container driver", "err", err)
 	}
 
-	log.Infoln("starting runners", "n", conf.Concurrency)
+	l := common.GetLogger(ctx)
+	l.Infoln("starting", conf.Concurrency, "runners")
 	fin := make(chan struct{}, conf.Concurrency)
 	for i := 0; i < conf.Concurrency; i++ {
+		l = l.WithFields(log.Fields{
+			"runner_id": i,
+		})
 		go func(i int) {
 			defer func() {
 				fin <- struct{}{}
 			}()
-			g, err := newGofer(conf, tasker, clock, hostname, docker,
-				log.WithFields(log.Fields{"runner_id": i}))
+			g, err := newGofer(conf, tasker, clock, hostname, docker, l)
 			if err != nil {
 				log.Errorln("Error creating runner", i, "err", err)
 				return
@@ -153,7 +156,7 @@ func (g *gofer) runner(ctx context.Context) {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			log.Warnln("recovered from panic, restarting runner: stack", r)
+			g.Warnln("recovered from panic, restarting runner: stack", r)
 			go g.runner(ctx)
 		}
 	}()
@@ -257,11 +260,11 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *titan.Job, runR
 	// g.tasker.Failed( job, reason, b.String())
 	// g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 
-	log.Debugln("reason", reason)
+	g.Debugln("reason", reason)
 
 	err := g.tasker.Update(job)
 	if err != nil {
-		log.Errorln("failed to update job!")
+		g.Errorln("failed to update job!")
 		return err
 	}
 

@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	log "github.com/Sirupsen/logrus"
+	"github.com/iron-io/titan/common"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/spf13/viper"
 	"golang.org/x/net/context"
@@ -52,11 +53,21 @@ func main() {
 			log.Fatalln("Error reading config file", err)
 		}
 	}
-
 	config := InitConfig(v)
-	tasker := NewTasker(config)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Fatal("couldn't resolve hostname", "err", err)
+	}
+
+	l := log.WithFields(log.Fields{
+		"hostname": hostname,
+	})
+	ctx = common.WithLogger(ctx, l)
+
+	ctx, cancel := context.WithCancel(ctx)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
 	go func() {
@@ -64,6 +75,8 @@ func main() {
 		log.Info("received signal", "signal", sig)
 		cancel()
 	}()
+
+	tasker := NewTasker(config, ctx)
 
 	Run(config, tasker, BoxTime{}, ctx)
 }

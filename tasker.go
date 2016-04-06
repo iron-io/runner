@@ -3,26 +3,32 @@ package main
 import (
 	"time"
 
+	"golang.org/x/net/context"
+
 	log "github.com/Sirupsen/logrus"
+	"github.com/iron-io/titan/common"
 	titan_go "github.com/iron-io/titan_go"
 )
 
 type Tasker struct {
 	api *titan_go.JobsApi
+	ctx context.Context
 }
 
 // Titan tasker.
-func NewTasker(config *Config) *Tasker {
+func NewTasker(config *Config, ctx context.Context) *Tasker {
 	api := titan_go.NewJobsApiWithBasePath(config.ApiUrl)
-	return &Tasker{api}
+	return &Tasker{api, ctx}
 }
 
 func (t *Tasker) Job() *titan_go.Job {
+	l := common.GetLogger(t.ctx)
+	l = l.WithField("action", "DequeueJob")
 	var job *titan_go.Job
 	for {
-		jobs, err := t.api.JobsConsumeGet(1)
+		jobs, err := t.api.JobsGet(1)
 		if err != nil {
-			log.Errorln("Tasker JobsConsumeGet", "err", err)
+			l.WithError(err).Errorln("dequeue job from api")
 		} else if len(jobs.Jobs) > 0 {
 			job = &jobs.Jobs[0]
 			break
@@ -33,13 +39,18 @@ func (t *Tasker) Job() *titan_go.Job {
 }
 
 func (t *Tasker) Update(job *titan_go.Job) error {
-	log.Debugln("Sending PATCH to update job", job)
-	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
+	l := common.GetLogger(t.ctx)
+	l = l.WithFields(log.Fields{
+		"action": "UpdateJob",
+		"job_id": job.Id,
+	})
+	l.Debugln("Sending PATCH to update job", job)
+	j, err := t.api.GroupsGroupNameJobsIdPatch(job.GroupName, job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
-		log.Errorln("Update failed", "job", job.Id, "err", err)
+		l.WithError(err).Errorln("Update failed")
 		return err
 	}
-	log.Infoln("Got back", j)
+	l.Infoln("Got back", j)
 	return nil
 }
 
@@ -49,7 +60,7 @@ func (t *Tasker) RetryTask(job *titan_go.Job) error {
 }
 
 func (t *Tasker) IsCancelled(job *titan_go.Job) bool {
-	wrapper, err := t.api.JobIdGet(job.Id)
+	wrapper, err := t.api.GroupsGroupNameJobsIdGet(job.GroupName, job.Id)
 	if err != nil {
 		log.Errorln("JobIdGet from Cancel", "err", err)
 		return false
@@ -60,7 +71,7 @@ func (t *Tasker) IsCancelled(job *titan_go.Job) bool {
 }
 
 func (t *Tasker) Succeeded(job *titan_go.Job, r string) error {
-	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
+	j, err := t.api.GroupsGroupNameJobsIdPatch(job.GroupName, job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
 		log.Errorln("Update failed", "job", job.Id, "err", err)
 		return err
@@ -74,7 +85,7 @@ func (t *Tasker) Succeeded(job *titan_go.Job, r string) error {
 }
 
 func (t *Tasker) Failed(job *titan_go.Job, reason string, r string) error {
-	j, err := t.api.JobIdPatch(job.Id, titan_go.JobWrapper{*job})
+	j, err := t.api.GroupsGroupNameJobsIdPatch(job.GroupName, job.Id, titan_go.JobWrapper{*job})
 	if err != nil {
 		log.Errorln("Update failed", "job", job.Id, "err", err)
 		return err
