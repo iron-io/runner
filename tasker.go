@@ -3,27 +3,23 @@ package main
 import (
 	"time"
 
-	"golang.org/x/net/context"
-
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/titan/common"
 	titan_go "github.com/iron-io/titan_go"
 )
 
 type Tasker struct {
 	api *titan_go.JobsApi
-	ctx context.Context
+	log log.FieldLogger
 }
 
 // Titan tasker.
-func NewTasker(config *Config, ctx context.Context) *Tasker {
+func NewTasker(config *Config, log log.FieldLogger) *Tasker {
 	api := titan_go.NewJobsApiWithBasePath(config.ApiUrl)
-	return &Tasker{api, ctx}
+	return &Tasker{api, log}
 }
 
 func (t *Tasker) Job() *titan_go.Job {
-	l := common.GetLogger(t.ctx)
-	l = l.WithField("action", "DequeueJob")
+	l := t.log.WithField("action", "DequeueJob")
 	var job *titan_go.Job
 	for {
 		jobs, err := t.api.JobsGet(1)
@@ -39,8 +35,7 @@ func (t *Tasker) Job() *titan_go.Job {
 }
 
 func (t *Tasker) Update(job *titan_go.Job) error {
-	l := common.GetLogger(t.ctx)
-	l = l.WithFields(log.Fields{
+	l := t.log.WithFields(log.Fields{
 		"action": "UpdateJob",
 		"job_id": job.Id,
 	})

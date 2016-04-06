@@ -76,7 +76,7 @@ func main() {
 		cancel()
 	}()
 
-	tasker := NewTasker(config, ctx)
+	tasker := NewTasker(config, l)
 
 	Run(config, tasker, BoxTime{}, ctx)
 }
