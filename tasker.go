@@ -16,20 +16,22 @@ import (
 type Tasker struct {
 	api   *titan_client.Titan
 	dummy os.File
+	log   log.FieldLogger
 }
 
 // Titan tasker.
 func NewTasker(config *Config, log log.FieldLogger) *Tasker {
 	api := titan_client.New(httptransport.New("localhost:8080", "/v1", []string{"http"}), strfmt.Default)
 	f, _ := ioutil.TempFile("", "crap-")
-	return &Tasker{api, *f}
+	return &Tasker{api, *f, log}
 }
 
 func (t *Tasker) Job() *client_models.Job {
 	l := t.log.WithField("action", "DequeueJob")
 	var job *client_models.Job
+	param := jobs.NewGetJobsParams()
 	for {
-		jobs, err := t.api.Jobs.GetJobsConsume(jobs.NewGetJobsConsumeParams())
+		jobs, err := t.api.Jobs.GetJobs(param)
 		if err != nil {
 			l.WithError(err).Errorln("dequeue job from api")
 		} else if len(jobs.Payload.Jobs) > 0 && jobs.Payload.Jobs[0] != nil {
@@ -44,10 +46,10 @@ func (t *Tasker) Job() *client_models.Job {
 func (t *Tasker) Update(job *client_models.Job) error {
 	l := t.log.WithFields(log.Fields{
 		"action": "UpdateJob",
-		"job_id": job.Id,
+		"job_id": job.ID,
 	})
 	l.Debugln("Sending PATCH to update job", job)
-	j, err := t.api.Jobs.PatchJobID(jobs.NewPatchJobIDParams().WithID(job.ID).WithBody(&client_models.JobWrapper{job}))
+	j, err := t.api.Jobs.PatchGroupsGroupNameJobsID(jobs.NewPatchGroupsGroupNameJobsIDParams().WithGroupName(job.GroupName).WithID(job.ID).WithBody(&client_models.JobWrapper{job}))
 	if err != nil {
 		l.WithError(err).Errorln("Update failed")
 		return err
@@ -62,7 +64,7 @@ func (t *Tasker) RetryTask(job *client_models.Job) error {
 }
 
 func (t *Tasker) IsCancelled(job *client_models.Job) bool {
-	wrapper, err := t.api.Jobs.GetJobID(jobs.NewGetJobIDParams().WithID(job.ID))
+	wrapper, err := t.api.Jobs.GetGroupsGroupNameJobsID(jobs.NewGetGroupsGroupNameJobsIDParams().WithGroupName(job.GroupName).WithID(job.ID))
 	if err != nil {
 		log.Errorln("JobIdGet from Cancel", "err", err)
 		return false
@@ -72,13 +74,13 @@ func (t *Tasker) IsCancelled(job *client_models.Job) bool {
 }
 
 func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
-	param := jobs.NewPostJobIDSuccessParams().WithID(job.ID)
-	if r != nil {
-		param = param.WithLog(*r)
-	} else {
-		param = param.WithLog(t.dummy)
-	}
-	_, err := t.api.Jobs.PostJobIDSuccess(param)
+	param := jobs.NewPostGroupsGroupNameJobsIDSuccessParams().WithGroupName(job.GroupName).WithID(job.ID)
+	//if r != nil {
+	//	param = param.WithLog(*r)
+	//} else {
+	//	param = param.WithLog(t.dummy)
+	//}
+	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDSuccess(param)
 	if err != nil {
 		log.Errorln("JobIdSuccessPost", "jobId", job.ID, "err", err)
 	}
@@ -86,14 +88,14 @@ func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
 }
 
 func (t *Tasker) Failed(job *client_models.Job, reason string, r *os.File) error {
-	param := jobs.NewPostJobIDFailParams().WithID(job.ID).WithReason(reason)
-	if r != nil {
-		param = param.WithLog(*r)
-	} else {
-		param = param.WithLog(t.dummy)
-	}
+	param := jobs.NewPostGroupsGroupNameJobsIDErrorParams().WithGroupName(job.GroupName).WithID(job.ID).WithReason(reason)
+	//if r != nil {
+	//	param = param.WithLog(*r)
+	//} else {
+	//	param = param.WithLog(t.dummy)
+	//}
 
-	_, err := t.api.Jobs.PostJobIDFail(param)
+	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDError(param)
 	if err != nil {
 		log.Errorln("JobIdFailPost", "jobId", job.ID, "err", err)
 	}
