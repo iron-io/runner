@@ -7,7 +7,6 @@ import (
 	strfmt "github.com/go-swagger/go-swagger/strfmt"
 
 	"github.com/go-swagger/go-swagger/errors"
-	"github.com/go-swagger/go-swagger/httpkit/validate"
 )
 
 /*Job job
@@ -29,12 +28,11 @@ type Job struct {
 	*/
 	CreatedAt strfmt.DateTime `json:"created_at,omitempty"`
 
-	/* Image to execute to run this Job. Get details via the /image/{id} endpoint.
+	/* Group this job belongs to.
 
-	Required: true
 	Read Only: true
 	*/
-	ImageID string `json:"image_id"`
+	GroupName string `json:"group_name,omitempty"`
 
 	/* reason
 	 */
@@ -67,10 +65,6 @@ func (m *Job) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateImageID(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateReason(formats); err != nil {
 		res = append(res, err)
 	}
@@ -78,15 +72,6 @@ func (m *Job) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *Job) validateImageID(formats strfmt.Registry) error {
-
-	if err := validate.RequiredString("image_id", "body", string(m.ImageID)); err != nil {
-		return err
-	}
-
 	return nil
 }
 

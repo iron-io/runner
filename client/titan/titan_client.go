@@ -9,9 +9,9 @@ import (
 
 	strfmt "github.com/go-swagger/go-swagger/strfmt"
 
-	"github.com/iron-io/titan/runner/client/titan/core"
-	"github.com/iron-io/titan/runner/client/titan/images"
+	"github.com/iron-io/titan/runner/client/titan/groups"
 	"github.com/iron-io/titan/runner/client/titan/jobs"
+	"github.com/iron-io/titan/runner/client/titan/runner"
 )
 
 // Default titan HTTP client.
@@ -31,22 +31,22 @@ func New(transport client.Transport, formats strfmt.Registry) *Titan {
 	cli := new(Titan)
 	cli.Transport = transport
 
-	cli.Core = core.New(transport, formats)
-
-	cli.Images = images.New(transport, formats)
+	cli.Groups = groups.New(transport, formats)
 
 	cli.Jobs = jobs.New(transport, formats)
+
+	cli.Runner = runner.New(transport, formats)
 
 	return cli
 }
 
 // Titan is a client for titan
 type Titan struct {
-	Core *core.Client
-
-	Images *images.Client
+	Groups *groups.Client
 
 	Jobs *jobs.Client
+
+	Runner *runner.Client
 
 	Transport client.Transport
 }
@@ -55,10 +55,10 @@ type Titan struct {
 func (c *Titan) SetTransport(transport client.Transport) {
 	c.Transport = transport
 
-	c.Core.SetTransport(transport)
-
-	c.Images.SetTransport(transport)
+	c.Groups.SetTransport(transport)
 
 	c.Jobs.SetTransport(transport)
+
+	c.Runner.SetTransport(transport)
 
 }

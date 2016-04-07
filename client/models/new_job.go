@@ -28,9 +28,9 @@ type NewJob struct {
 	*/
 	Image *string `json:"image"`
 
-	/* Number of automatic retries this job is allowed. A retry will be attempted if a task fails. Max 25.
-	Automatic retries are performed by titan when a task reaches a failed state and has `max_retries` > 0. A retry is performed by queueing a new job with the same image id and payload. The new job's max_retries is one less than the original. The new job's `retry_of` field is set to the original Job ID.  Titan will delay the new job for retries_delay seconds before queueing it. Cancelled or successful tasks are never automatically retried.
-	*/
+	/* "Number of automatic retries this job is allowed. A retry will be attempted if a task fails. Max 25. Automatic retries are performed by titan when a task reaches a failed state and has `max_retries` > 0. A retry is performed by queueing a new job with the same image id and payload. The new job's max_retries is one less than the original. The new job's `retry_of` field is set to the original Job ID.  Titan will delay the new job for retries_delay seconds before queueing it. Cancelled or successful tasks are never automatically retried."
+
+	 */
 	MaxRetries *int32 `json:"max_retries,omitempty"`
 
 	/* Payload for the job. This is what you pass into each job to make it do something.
@@ -49,8 +49,14 @@ type NewJob struct {
 	 */
 	RetriesDelay *int32 `json:"retries_delay,omitempty"`
 
-	/* Maximum runtime in seconds. If a consumer retrieves the job, but does not change it's status within timeout seconds, the job is considered failed, with reason timeout (Titan may allow a small grace period). The consumer should also kill the job after timeout seconds. If a consumer tries to change status after Titan has already timed out the job, the consumer will be ignored.
-	 */
+	/* Maximum runtime in seconds. If a consumer retrieves the
+	job, but does not change it's status within timeout seconds, the job
+	is considered failed, with reason timeout (Titan may allow a small
+	grace period). The consumer should also kill the job after timeout
+	seconds. If a consumer tries to change status after Titan has already
+	timed out the job, the consumer will be ignored.
+
+	*/
 	Timeout *int32 `json:"timeout,omitempty"`
 }
 

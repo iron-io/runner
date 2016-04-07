@@ -23,7 +23,7 @@ type Client struct {
 }
 
 /*
-DeleteJobID deletes the job
+DeleteGroupsGroupNameJobsID deletes the job
 
 Delete only succeeds if job status is one of `succeeded
 | failed | cancelled`. Cancel a job if it is another state and needs to
@@ -31,86 +31,113 @@ be deleted.  All information about the job, including the log, is
 irretrievably lost when this is invoked.
 
 */
-func (a *Client) DeleteJobID(params *DeleteJobIDParams) (*DeleteJobIDOK, error) {
+func (a *Client) DeleteGroupsGroupNameJobsID(params *DeleteGroupsGroupNameJobsIDParams) (*DeleteGroupsGroupNameJobsIDOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewDeleteJobIDParams()
+		params = NewDeleteGroupsGroupNameJobsIDParams()
 	}
 
 	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "DeleteJobID",
+		ID:                 "DeleteGroupsGroupNameJobsID",
 		Method:             "DELETE",
-		PathPattern:        "/job/{id}",
+		PathPattern:        "/groups/{group_name}/jobs/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &DeleteJobIDReader{formats: a.formats},
+		Reader:             &DeleteGroupsGroupNameJobsIDReader{formats: a.formats},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*DeleteJobIDOK), nil
+	return result.(*DeleteGroupsGroupNameJobsIDOK), nil
 }
 
 /*
-GetJobID gets job by id
+GetGroupsGroupNameJobs gets job list by group name
+
+This will list jobs for a particular group.
+*/
+func (a *Client) GetGroupsGroupNameJobs(params *GetGroupsGroupNameJobsParams) (*GetGroupsGroupNameJobsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetGroupsGroupNameJobsParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "GetGroupsGroupNameJobs",
+		Method:             "GET",
+		PathPattern:        "/groups/{group_name}/jobs",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &GetGroupsGroupNameJobsReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*GetGroupsGroupNameJobsOK), nil
+}
+
+/*
+GetGroupsGroupNameJobsID gets job by id
 
 Gets a job by id.
 */
-func (a *Client) GetJobID(params *GetJobIDParams) (*GetJobIDOK, error) {
+func (a *Client) GetGroupsGroupNameJobsID(params *GetGroupsGroupNameJobsIDParams) (*GetGroupsGroupNameJobsIDOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewGetJobIDParams()
+		params = NewGetGroupsGroupNameJobsIDParams()
 	}
 
 	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "GetJobID",
+		ID:                 "GetGroupsGroupNameJobsID",
 		Method:             "GET",
-		PathPattern:        "/job/{id}",
+		PathPattern:        "/groups/{group_name}/jobs/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &GetJobIDReader{formats: a.formats},
+		Reader:             &GetGroupsGroupNameJobsIDReader{formats: a.formats},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*GetJobIDOK), nil
+	return result.(*GetGroupsGroupNameJobsIDOK), nil
 }
 
 /*
-GetJobIDLog gets the log of a completed job
+GetGroupsGroupNameJobsIDLog gets the log of a completed job
 
 Retrieves the log from log storage.
 */
-func (a *Client) GetJobIDLog(params *GetJobIDLogParams) (*GetJobIDLogOK, error) {
+func (a *Client) GetGroupsGroupNameJobsIDLog(params *GetGroupsGroupNameJobsIDLogParams) (*GetGroupsGroupNameJobsIDLogOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewGetJobIDLogParams()
+		params = NewGetGroupsGroupNameJobsIDLogParams()
 	}
 
 	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "GetJobIDLog",
+		ID:                 "GetGroupsGroupNameJobsIDLog",
 		Method:             "GET",
-		PathPattern:        "/job/{id}/log",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/log",
 		ProducesMediaTypes: []string{"text/plain"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &GetJobIDLogReader{formats: a.formats},
+		Reader:             &GetGroupsGroupNameJobsIDLogReader{formats: a.formats},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*GetJobIDLogOK), nil
+	return result.(*GetGroupsGroupNameJobsIDLogOK), nil
 }
 
 /*
-GetJobs peeks at list of jobs
+GetJobs gets next job
 
-Get a list of active jobs. This endpoint can be used to observe the state of jobs in Titan. To run a job, use /jobs/consume. TODO: Needs pagination support.
+Gets the next job in the queue, ready for processing. Titan may return <=n jobs. Consumers should start processing jobs in order. Each returned job is set to `status` "running" and `started_at` is set to the current time. No other consumer can retrieve this job.
 */
 func (a *Client) GetJobs(params *GetJobsParams) (*GetJobsOK, error) {
 	// TODO: Validate the params before sending
@@ -135,222 +162,254 @@ func (a *Client) GetJobs(params *GetJobsParams) (*GetJobsOK, error) {
 }
 
 /*
-GetJobsConsume gets next job
+PatchGroupsGroupNameJobsID ds e p r e c a t e d update a job
 
-Gets the next job in the queue, ready for processing. Titan may return <=n jobs. Consumers should start processing jobs in order. Each returned job is set to `status` "running" and `started_at` is set to the current time. No other consumer can retrieve this job.
+Used to update status on job transitions. Eg: from 'running' to 'success'.
 */
-func (a *Client) GetJobsConsume(params *GetJobsConsumeParams) (*GetJobsConsumeOK, error) {
+func (a *Client) PatchGroupsGroupNameJobsID(params *PatchGroupsGroupNameJobsIDParams) (*PatchGroupsGroupNameJobsIDOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewGetJobsConsumeParams()
+		params = NewPatchGroupsGroupNameJobsIDParams()
 	}
 
 	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "GetJobsConsume",
-		Method:             "GET",
-		PathPattern:        "/jobs/consume",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &GetJobsConsumeReader{formats: a.formats},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*GetJobsConsumeOK), nil
-}
-
-/*
-PatchJobID updates a job
-
-Typically used to update status on error/completion. TODO: only allow 'status' field.
-*/
-func (a *Client) PatchJobID(params *PatchJobIDParams) (*PatchJobIDOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewPatchJobIDParams()
-	}
-
-	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PatchJobID",
+		ID:                 "PatchGroupsGroupNameJobsID",
 		Method:             "PATCH",
-		PathPattern:        "/job/{id}",
+		PathPattern:        "/groups/{group_name}/jobs/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &PatchJobIDReader{formats: a.formats},
+		Reader:             &PatchGroupsGroupNameJobsIDReader{formats: a.formats},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*PatchJobIDOK), nil
+	return result.(*PatchGroupsGroupNameJobsIDOK), nil
 }
 
 /*
-PostJobIDCancel cancels a job
-
-Cancels a job in delayed, queued or running status. The worker may continue to run a running job. reason is set to `client_request`.
-*/
-func (a *Client) PostJobIDCancel(params *PostJobIDCancelParams) (*PostJobIDCancelOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewPostJobIDCancelParams()
-	}
-
-	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PostJobIDCancel",
-		Method:             "POST",
-		PathPattern:        "/job/{id}/cancel",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &PostJobIDCancelReader{formats: a.formats},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*PostJobIDCancelOK), nil
-}
-
-/*
-PostJobIDFail marks job as failed
-
-Job is marked as failed if it was in a valid state. Job's `completed_at` time is initialized.
-*/
-func (a *Client) PostJobIDFail(params *PostJobIDFailParams) (*PostJobIDFailOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewPostJobIDFailParams()
-	}
-
-	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PostJobIDFail",
-		Method:             "POST",
-		PathPattern:        "/job/{id}/fail",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"multipart/form-data"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &PostJobIDFailReader{formats: a.formats},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*PostJobIDFailOK), nil
-}
-
-/*
-PostJobIDRetry retries a job
-
-The /retry endpoint can be used to force a retry of jobs with status succeeded or cancelled. It can also be used to retry jobs that in the failed state, but whose max_retries field is 0. The retried job will continue to have max_retries = 0.
-*/
-func (a *Client) PostJobIDRetry(params *PostJobIDRetryParams) (*PostJobIDRetryOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewPostJobIDRetryParams()
-	}
-
-	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PostJobIDRetry",
-		Method:             "POST",
-		PathPattern:        "/job/{id}/retry",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &PostJobIDRetryReader{formats: a.formats},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*PostJobIDRetryOK), nil
-}
-
-/*
-PostJobIDSuccess marks job as succeeded
-
-Job status is changed to succeeded if it was in a valid state before. Job's `completed_at` time is initialized.
-*/
-func (a *Client) PostJobIDSuccess(params *PostJobIDSuccessParams) (*PostJobIDSuccessOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewPostJobIDSuccessParams()
-	}
-
-	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PostJobIDSuccess",
-		Method:             "POST",
-		PathPattern:        "/job/{id}/success",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"multipart/form-data"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &PostJobIDSuccessReader{formats: a.formats},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*PostJobIDSuccessOK), nil
-}
-
-/*
-PostJobIDTouch extends job timeout
-
-Consumers can sometimes take a while to run the task after accepting it.  An example is when the runner does not have the docker image locally, it can spend a significant time downloading the image.
-If the timeout is small, the job may never get to run, or run but not be accepted by Titan. Consumers can touch the job before it times out. Titan will reset the timeout, giving the consumer another timeout seconds to run the job.
-Touch is only valid while the job is in a running state. If touch fails, the runner may stop running the job.
-*/
-func (a *Client) PostJobIDTouch(params *PostJobIDTouchParams) (*PostJobIDTouchOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewPostJobIDTouchParams()
-	}
-
-	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PostJobIDTouch",
-		Method:             "POST",
-		PathPattern:        "/job/{id}/touch",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"http", "https"},
-		Params:             params,
-		Reader:             &PostJobIDTouchReader{formats: a.formats},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*PostJobIDTouchOK), nil
-}
-
-/*
-PostJobs enqueues job
+PostGroupsGroupNameJobs enqueues job
 
 Enqueues job(s). If any of the jobs is invalid, none of the jobs are enqueued.
 
 */
-func (a *Client) PostJobs(params *PostJobsParams) (*PostJobsCreated, error) {
+func (a *Client) PostGroupsGroupNameJobs(params *PostGroupsGroupNameJobsParams) (*PostGroupsGroupNameJobsCreated, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewPostJobsParams()
+		params = NewPostGroupsGroupNameJobsParams()
 	}
 
 	result, err := a.transport.Submit(&client.Operation{
-		ID:                 "PostJobs",
+		ID:                 "PostGroupsGroupNameJobs",
 		Method:             "POST",
-		PathPattern:        "/jobs",
+		PathPattern:        "/groups/{group_name}/jobs",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"http", "https"},
 		Params:             params,
-		Reader:             &PostJobsReader{formats: a.formats},
+		Reader:             &PostGroupsGroupNameJobsReader{formats: a.formats},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*PostJobsCreated), nil
+	return result.(*PostGroupsGroupNameJobsCreated), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDCancel cancels a job
+
+Cancels a job in delayed, queued or running status. The worker may continue to run a running job. reason is set to `client_request`.
+*/
+func (a *Client) PostGroupsGroupNameJobsIDCancel(params *PostGroupsGroupNameJobsIDCancelParams) (*PostGroupsGroupNameJobsIDCancelOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDCancelParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDCancel",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/cancel",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDCancelReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDCancelOK), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDError marks job as failed
+
+Job is marked as failed if it was in a valid state. Job's `finished_at` time is initialized.
+*/
+func (a *Client) PostGroupsGroupNameJobsIDError(params *PostGroupsGroupNameJobsIDErrorParams) (*PostGroupsGroupNameJobsIDErrorOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDErrorParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDError",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/error",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDErrorReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDErrorOK), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDLog sends in a log for storage
+
+Logs are sent after a job completes since they may be very large and the runner can process the next job.
+*/
+func (a *Client) PostGroupsGroupNameJobsIDLog(params *PostGroupsGroupNameJobsIDLogParams) (*PostGroupsGroupNameJobsIDLogCreated, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDLogParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDLog",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/log",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"multipart/form-data"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDLogReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDLogCreated), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDRetry retries a job
+
+"The /retry endpoint can be used to force a retry of jobs
+with status succeeded or cancelled. It can also be used to retry jobs
+that in the failed state, but whose max_retries field is 0. The retried
+job will continue to have max_retries = 0."
+
+*/
+func (a *Client) PostGroupsGroupNameJobsIDRetry(params *PostGroupsGroupNameJobsIDRetryParams) (*PostGroupsGroupNameJobsIDRetryOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDRetryParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDRetry",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/retry",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDRetryReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDRetryOK), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDStart marks job as started ie status running
+
+Job status is changed to 'running' if it was in a valid state before. Job's `started_at` time is initialized.
+*/
+func (a *Client) PostGroupsGroupNameJobsIDStart(params *PostGroupsGroupNameJobsIDStartParams) (*PostGroupsGroupNameJobsIDStartOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDStartParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDStart",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/start",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDStartReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDStartOK), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDSuccess marks job as succeeded
+
+Job status is changed to succeeded if it was in a valid state before. Job's `completed_at` time is initialized.
+*/
+func (a *Client) PostGroupsGroupNameJobsIDSuccess(params *PostGroupsGroupNameJobsIDSuccessParams) (*PostGroupsGroupNameJobsIDSuccessOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDSuccessParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDSuccess",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/success",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDSuccessReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDSuccessOK), nil
+}
+
+/*
+PostGroupsGroupNameJobsIDTouch extends job timeout
+
+Consumers can sometimes take a while to run the task after accepting it.  An example is when the runner does not have the docker image locally, it can spend a significant time downloading the image.
+If the timeout is small, the job may never get to run, or run but not be accepted by Titan. Consumers can touch the job before it times out. Titan will reset the timeout, giving the consumer another timeout seconds to run the job.
+Touch is only valid while the job is in a running state. If touch fails, the runner may stop running the job.
+
+*/
+func (a *Client) PostGroupsGroupNameJobsIDTouch(params *PostGroupsGroupNameJobsIDTouchParams) (*PostGroupsGroupNameJobsIDTouchOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPostGroupsGroupNameJobsIDTouchParams()
+	}
+
+	result, err := a.transport.Submit(&client.Operation{
+		ID:                 "PostGroupsGroupNameJobsIDTouch",
+		Method:             "POST",
+		PathPattern:        "/groups/{group_name}/jobs/{id}/touch",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"http", "https"},
+		Params:             params,
+		Reader:             &PostGroupsGroupNameJobsIDTouchReader{formats: a.formats},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*PostGroupsGroupNameJobsIDTouchOK), nil
 }
 
 // SetTransport changes the transport on the client

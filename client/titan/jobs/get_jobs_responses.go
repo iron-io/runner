@@ -47,7 +47,7 @@ func NewGetJobsOK() *GetJobsOK {
 
 /*GetJobsOK handles this case with default header values.
 
-List of jobs.
+Job information
 */
 type GetJobsOK struct {
 	Payload *models.JobsWrapper

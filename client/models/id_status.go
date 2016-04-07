@@ -58,8 +58,7 @@ type IDStatus struct {
 	    violations.
 	  - bad_exit - exited with non-zero status due to program termination/crash.
 	* cancelled - cancelled via API. More information in the reason field.
-	  - client_request - Request was cancelled by a client. See "details" for any
-	    details.
+	  - client_request - Request was cancelled by a client.
 
 
 	Required: true

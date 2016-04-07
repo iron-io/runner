@@ -12,8 +12,7 @@ import (
 	"github.com/go-swagger/go-swagger/httpkit/validate"
 )
 
-/*Reason Machine usable reason for job being in this state. See `details` for more information (if any).
-
+/*Reason Machine usable reason for job being in this state.
 Valid values for error status are `timeout | killed | bad_exit`.
 Valid values for cancelled status are `client_request`.
 For everything else, this is undefined.

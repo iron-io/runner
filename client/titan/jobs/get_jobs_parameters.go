@@ -15,7 +15,7 @@ import (
 // with the default values initialized.
 func NewGetJobsParams() *GetJobsParams {
 	var (
-		nDefault int32 = int32(10)
+		nDefault int32 = int32(1)
 	)
 	return &GetJobsParams{
 		N: &nDefault,
@@ -28,7 +28,7 @@ for the get jobs operation typically these are written to a http.Request
 type GetJobsParams struct {
 
 	/*N
-	  Number of jobs to return. Titan may return <=n jobs. Titan does not make any guarantees about job ordering, but jobs will not be repeated. To make sure you get unique jobs, use the cursor effectively. TODO: We don't actually support pagination.
+	  Number of jobs to return.
 
 	*/
 	N *int32
