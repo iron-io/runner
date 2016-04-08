@@ -10,10 +10,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	strfmt "github.com/go-swagger/go-swagger/strfmt"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/common/stats"
-	"github.com/iron-io/titan/jobserver/models"
 	client_models "github.com/iron-io/titan/runner/client/models"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/docker"
@@ -286,11 +284,16 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	defer isCancelledStopSignal()
 	go g.emitCancellationSignal(isCancelledCtx, job, isCancelledChn)
 
-	g.Debug("setting task status to running", "job_id", job.ID)
-	now := g.clock.Now()
-	job.StartedAt = strfmt.DateTime(now)
-	job.Status = models.StatusRunning
-	g.tasker.Update(job)
+	l := g.WithFields(log.Fields{
+		"job_id": job.ID,
+	})
+	l.Debugln("starting job")
+
+	err := g.tasker.Start(job)
+	if err != nil {
+		l.WithError(err).Errorln("Jobserver forbade starting job, skipping")
+		return
+	}
 
 	containerTask := &goferTask{
 		command: "",
@@ -302,17 +305,14 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	}
 	containerTask.payload = job.Payload
 
-	log.Infoln("About to run", containerTask)
+	l.Debugln("About to run", containerTask)
 	runResult := g.driver.Run(containerTask, isCancelledChn)
-	log.Infoln("Run result", "err", runResult.Error(), "status", runResult.Status())
+	l.WithFields(log.Fields{
+		"status": runResult.Status(),
+		"error":  runResult.Error(),
+	}).Debugln("Run result")
+
 	log := runResult.Log()
-
-	if runResult.Error() != nil {
-		job.Status = "error"
-		// TODO: retries on server side, we just send status back
-		// g.retryTask(ctx, job)
-	}
-
 	g.updateTaskStatusAndLog(ctx, job, runResult, log)
 }
 

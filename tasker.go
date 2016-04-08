@@ -43,6 +43,26 @@ func (t *Tasker) Job() *client_models.Job {
 	return job
 }
 
+func (t *Tasker) Start(job *client_models.Job) error {
+	l := t.log.WithFields(log.Fields{
+		"action": "Start",
+		"job_id": job.ID,
+	})
+	params := jobs.NewPostGroupsGroupNameJobsIDStartParams().WithGroupName(job.GroupName).WithID(job.ID)
+	body := &client_models.Start{
+		StartedAt: strfmt.DateTime(time.Now()),
+	}
+	params.WithBody(body)
+
+	j, err := t.api.Jobs.PostGroupsGroupNameJobsIDStart(params)
+	if err != nil {
+		l.WithError(err).Errorln("failed")
+		return err
+	}
+	l.Infoln("Got back", j)
+	return nil
+}
+
 func (t *Tasker) Update(job *client_models.Job) error {
 	l := t.log.WithFields(log.Fields{
 		"action": "UpdateJob",
