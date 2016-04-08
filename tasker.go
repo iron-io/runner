@@ -75,34 +75,35 @@ func (t *Tasker) IsCancelled(job *client_models.Job) bool {
 
 func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
 	param := jobs.NewPostGroupsGroupNameJobsIDSuccessParams().WithGroupName(job.GroupName).WithID(job.ID)
-	//if r != nil {
-	//	param = param.WithLog(*r)
-	//} else {
-	//	param = param.WithLog(t.dummy)
-	//}
 	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDSuccess(param)
 	if err != nil {
 		log.Errorln("JobIdSuccessPost", "jobId", job.ID, "err", err)
 	}
-	return nil
+	return t.Log(job, r)
 }
 
 func (t *Tasker) Failed(job *client_models.Job, reason string, r *os.File) error {
 	param := jobs.NewPostGroupsGroupNameJobsIDErrorParams().WithGroupName(job.GroupName).WithID(job.ID).WithReason(reason)
-	//if r != nil {
-	//	param = param.WithLog(*r)
-	//} else {
-	//	param = param.WithLog(t.dummy)
-	//}
 
 	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDError(param)
 	if err != nil {
 		log.Errorln("JobIdFailPost", "jobId", job.ID, "err", err)
 	}
-	return nil
+	return t.Log(job, r)
 }
 
 func (t *Tasker) Log(job *client_models.Job, logFile *os.File) error {
-	panic("Not implemented")
-	return nil
+	param := jobs.NewPostGroupsGroupNameJobsIDLogParams().WithGroupName(job.GroupName).WithID(job.ID)
+	if logFile != nil {
+		param.WithLog(*logFile)
+	} else {
+		param.WithLog(t.dummy)
+	}
+	r, err := t.api.Jobs.PostGroupsGroupNameJobsIDLog(param)
+	log.Println(r, err)
+	if err != nil {
+		log.WithError(err).Errorln("Uploading log")
+	}
+
+	return err
 }
