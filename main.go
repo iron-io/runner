@@ -7,7 +7,6 @@ import (
 	"syscall"
 
 	log "github.com/Sirupsen/logrus"
-	"github.com/iron-io/titan/common"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/spf13/viper"
 	"golang.org/x/net/context"
@@ -55,7 +54,14 @@ func main() {
 	}
 	config := InitConfig(v)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
+	go func() {
+		sig := <-c
+		log.Info("received signal", "signal", sig)
+		cancel()
+	}()
 
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -65,17 +71,6 @@ func main() {
 	l := log.WithFields(log.Fields{
 		"hostname": hostname,
 	})
-	ctx = common.WithLogger(ctx, l)
-
-	ctx, cancel := context.WithCancel(ctx)
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGINT)
-	go func() {
-		sig := <-c
-		log.Info("received signal", "signal", sig)
-		cancel()
-	}()
-
 	tasker := NewTasker(config, l)
 
 	Run(config, tasker, BoxTime{}, ctx)

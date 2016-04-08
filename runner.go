@@ -116,26 +116,28 @@ func Run(conf *Config, tasker *Tasker, clock common.Clock, ctx context.Context) 
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
 	}
+	l := log.WithFields(log.Fields{
+		"hostname": hostname,
+	})
 
 	docker, err := docker.NewDocker(conf.DriverConfig, hostname)
 	if err != nil {
-		log.Fatal("couldn't start container driver", "err", err)
+		l.Fatal("couldn't start container driver", "err", err)
 	}
 
-	l := common.GetLogger(ctx)
 	l.Infoln("starting", conf.Concurrency, "runners")
 	fin := make(chan struct{}, conf.Concurrency)
 	for i := 0; i < conf.Concurrency; i++ {
-		l = l.WithFields(log.Fields{
-			"runner_id": i,
-		})
 		go func(i int) {
 			defer func() {
 				fin <- struct{}{}
 			}()
-			g, err := newGofer(conf, tasker, clock, hostname, docker, l)
+			sl := l.WithFields(log.Fields{
+				"runner_id": i,
+			})
+			g, err := newGofer(conf, tasker, clock, hostname, docker, sl)
 			if err != nil {
-				log.Errorln("Error creating runner", i, "err", err)
+				l.Errorln("Error creating runner", i, "err", err)
 				return
 			}
 			g.runner(ctx)
@@ -143,12 +145,12 @@ func Run(conf *Config, tasker *Tasker, clock common.Clock, ctx context.Context) 
 	}
 
 	<-ctx.Done()
-	log.Info("shutting down, let all tasks finish! or else...")
+	l.Info("shutting down, let all tasks finish! or else...")
 	for i := 1; i <= conf.Concurrency; i++ {
 		<-fin
-		log.Info("task finished", "still_running", conf.Concurrency-i)
+		l.Info("task finished", "still_running", conf.Concurrency-i)
 	}
-	log.Info("all tasks done, exiting cleanly. thank you, come again.")
+	l.Info("all tasks done, exiting cleanly. thank you, come again.")
 }
 
 func (g *gofer) runner(ctx context.Context) {
