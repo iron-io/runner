@@ -38,6 +38,12 @@ type ContainerTask interface {
 	Image() string
 	Payload() string
 	Timeout() uint
+	Auth()	Auth
+}
+
+type Auth interface {
+	Username() string
+	Password() string
 }
 
 // Set of acceptable errors coming from container engines to TaskRunner

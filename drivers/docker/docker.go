@@ -172,7 +172,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		return "", err
 	}
 
-	cID, err := drv.createContainer(envvars, cmd, task.Image(), absTaskDir)
+	cID, err := drv.createContainer(envvars, cmd, task.Image(), absTaskDir, task.Auth())
 	if err != nil {
 		return "", err
 	}
@@ -195,7 +195,7 @@ func writeFile(name, body string) error {
 	return err
 }
 
-func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string) (string, error) {
+func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string, auth drivers.Auth) (string, error) {
 	container := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Env:       envvars,
@@ -221,7 +221,13 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 
 		repo, tag := docker.ParseRepositoryTag(image)
 
-		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, docker.AuthConfiguration{}) // TODO AuthConfig from code
+		authConfig := docker.AuthConfiguration{}
+		if auth != nil {
+			authConfig.Username = auth.Username()
+			authConfig.Password = auth.Password()
+		}
+
+		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig) // TODO AuthConfig from code
 		if err != nil {
 			return "", err
 		}

@@ -36,6 +36,7 @@ type goferTask struct {
 	payload string
 	timeout uint
 	drivers.ContainerTask
+	auth	*goferAuth
 }
 
 func (g *goferTask) Command() string            { return g.command }
@@ -45,6 +46,15 @@ func (g *goferTask) Id() string                 { return g.id }
 func (g *goferTask) Image() string              { return g.image }
 func (g *goferTask) Payload() string            { return g.payload }
 func (g *goferTask) Timeout() uint              { return g.timeout }
+func (g *goferTask) Auth() drivers.Auth		{ return g.auth }
+
+type goferAuth struct {
+	username string
+	password string
+}
+
+func (g *goferAuth) Username() string { return g.username }
+func (g *goferAuth) Password() string { return g.password }
 
 type gofer struct {
 	conf       *Config
@@ -303,6 +313,12 @@ func (g *gofer) runTask(ctx context.Context, job *titan.Job) {
 		image:   job.Image,
 		payload: job.Payload,
 		timeout: uint(job.Timeout),
+	}
+	if job.Username != "" {
+		containerTask.auth = &goferAuth{
+			username: job.Username,
+			password: job.Password,
+		}
 	}
 	log.Infoln("About to run", containerTask)
 	runResult := g.driver.Run(containerTask, isCancelledChn)
