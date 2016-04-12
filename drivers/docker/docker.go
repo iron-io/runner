@@ -38,7 +38,8 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 	}
 
 	// create local directory to store log files
-	err = os.Mkdir(conf.JobsDir, 0777)
+	// use MkdirAll() to avoid failure if dir already exists.
+	err = os.MkdirAll(conf.JobsDir, 0777)
 	if err != nil {
 		log.Errorln("could not create", conf.JobsDir, "directory!")
 		return nil, err
