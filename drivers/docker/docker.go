@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,7 @@ type DockerDriver struct {
 	conf     *common.Config
 	docker   *docker.Client
 	hostname string
+	rand     *rand.Rand
 	// runtimeDir string
 }
 
@@ -38,7 +40,8 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 	}
 
 	// create local directory to store log files
-	err = os.Mkdir(conf.JobsDir, 0777)
+	// use MkdirAll() to avoid failure if dir already exists.
+	err = os.MkdirAll(conf.JobsDir, 0777)
 	if err != nil {
 		log.Errorln("could not create", conf.JobsDir, "directory!")
 		return nil, err
@@ -48,17 +51,21 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 		conf:     conf,
 		docker:   docker,
 		hostname: hostname,
+		rand:     rand.New(rand.NewSource(time.Now().Unix())),
 	}, nil
 }
 
 func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
-	defer os.RemoveAll(drv.taskDir(task))
+	// FIXME(nikhil): Can't remove this, log file in there.
+	//defer os.RemoveAll(drv.taskDir(task))
 
-	if err := drv.ensureTaskDir(task); err != nil {
+	taskDirName := drv.newTaskDirName(task)
+
+	if err := os.Mkdir(taskDirName, 0777); err != nil {
 		return drv.error(err)
 	}
 
-	container, err := drv.startTask(task)
+	container, err := drv.startTask(task, taskDirName)
 	if container != "" {
 		// It is possible that startTask created a container but could not start it. So always try to remove a valid container.
 		defer drv.removeContainer(container)
@@ -74,7 +81,7 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	defer close(done)
 	go drv.nanny(container, task, sentence, done, isCancelled)
 
-	log, err := drv.ensureLogFile(task)
+	log, err := drv.ensureLogFile(taskDirName)
 	if err != nil {
 		return drv.error(err)
 	}
@@ -108,16 +115,14 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	}
 }
 
-func (drv *DockerDriver) taskDir(task drivers.ContainerTask) string {
-	return drv.conf.JobsDir + "/" + task.Id()
+func (drv *DockerDriver) newTaskDirName(task drivers.ContainerTask) string {
+	// Add a random suffix so that in the rare/erroneous case that we get a repeat job ID, we don't behave badly.
+	gen := drv.rand.Uint32()
+	return filepath.Join(drv.conf.JobsDir, fmt.Sprintf("%s-%d", task.Id(), gen))
 }
 
-func (drv *DockerDriver) ensureTaskDir(task drivers.ContainerTask) error {
-	return os.Mkdir(drv.taskDir(task), 0777)
-}
-
-func (drv *DockerDriver) ensureLogFile(task drivers.ContainerTask) (*os.File, error) {
-	log, err := os.Create(drv.taskDir(task) + "/" + logFile)
+func (drv *DockerDriver) ensureLogFile(dir string) (*os.File, error) {
+	log, err := os.Create(filepath.Join(dir, logFile))
 	if err != nil {
 		return nil, fmt.Errorf("%v %v", "couldn't open task log", err)
 	}
@@ -131,7 +136,7 @@ func (drv *DockerDriver) error(err error) *runResult {
 	}
 }
 
-func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
+func (drv *DockerDriver) startTask(task drivers.ContainerTask, hostTaskDir string) (dockerId string, err error) {
 	if task.Image() == "" {
 		// TODO support for old
 		return "", errors.New("no image specified, this runner cannot run this")
@@ -143,8 +148,6 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		// There's a possibility that the container doesn't have sh.
 		cmd = []string{"sh", "-c", task.Command()}
 	}
-
-	hostTaskDir := drv.taskDir(task)
 
 	// config := hostTaskDir + "/" + configFile
 	// payload := hostTaskDir + "/" + payloadFile

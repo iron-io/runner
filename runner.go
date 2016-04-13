@@ -6,15 +6,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/common/stats"
-	"github.com/iron-io/titan/jobserver/models"
+	client_models "github.com/iron-io/titan/runner/client/models"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/docker"
-	"github.com/iron-io/titan_go"
 	"golang.org/x/net/context"
 )
 
@@ -168,7 +168,7 @@ func (g *gofer) runner(ctx context.Context) {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			g.Warnln("recovered from panic, restarting runner: stack", r)
+			log.Warnln("recovered from panic, restarting runner: stack", r, string(debug.Stack()))
 			go g.runner(ctx)
 		}
 	}()
@@ -178,7 +178,7 @@ func (g *gofer) runner(ctx context.Context) {
 	// select. We use this channel and goroutine to get around it.  This does
 	// mean that the goroutine wrapping Job() never shuts down, this is OK since
 	// the process is about to quit.
-	tasks := make(chan *titan.Job, 1)
+	tasks := make(chan *client_models.Job, 1)
 	go func() {
 		for {
 			tasks <- g.tasker.Job()
@@ -196,25 +196,25 @@ func (g *gofer) runner(ctx context.Context) {
 				return
 			case task := <-tasks:
 				sw.Stop()
-				g.Debug("starting job", "job_id", task.Id)
+				g.Debug("starting job", "job_id", task.ID)
 
 				sw = g.timer("run_job")
 				g.runTask(ctx, task)
 				sw.Stop()
 
-				g.Debug("job finished", "job_id", task.Id)
+				g.Debug("job finished", "job_id", task.ID)
 			}
 		}
 	}
 }
 
-func (g *gofer) logAndLeave(ctx context.Context, job *titan.Job, msg string, err error) {
+func (g *gofer) logAndLeave(ctx context.Context, job *client_models.Job, msg string, err error) {
 	g.tasker.Update(job)
 	// TODO: panic("How do we implement")
 	// ctx.Error(msg, "err", err)
 }
 
-func (g *gofer) recordTaskCompletion(job *titan.Job, status string, duration time.Duration) {
+func (g *gofer) recordTaskCompletion(job *client_models.Job, status string, duration time.Duration) {
 	statName := fmt.Sprintf("completion.%s", status)
 	// todo: remove project stuff
 	projectStatName := fmt.Sprintf("p.%s.completion.%s", status)
@@ -225,10 +225,9 @@ func (g *gofer) recordTaskCompletion(job *titan.Job, status string, duration tim
 	g.Time("task", projectStatName, duration, 1.0)
 }
 
-func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *titan.Job, runResult drivers.RunResult, logFile *os.File) error {
+// This will close logFile
+func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.Job, runResult drivers.RunResult, logFile *os.File) error {
 	g.Debug("updating task")
-	now := time.Now()
-	job.CompletedAt = now
 
 	// Docker driver should seek!
 	// This is REALLY stupid. The swagger online generator has obviously not been
@@ -237,31 +236,28 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *titan.Job, runR
 	// parser does not support encoding os.File. It seems like go-swagger does
 	// this correctly, so I've filed #73. Meanwhile, serialize to a string.
 	logFile.Seek(0, 0)
-	var b bytes.Buffer
-	io.Copy(&b, logFile)
+	defer logFile.Close()
 
 	// We can't set job.Reason because Reason is generated as an empty struct for some reason o_O Not looking into this right now.
 	var reason string
 	if runResult.Status() == "success" {
-		job.Status = models.StatusSuccess
-		// g.tasker.Succeeded( job, b.String())
+		return g.tasker.Succeeded(job, logFile)
 	} else if runResult.Status() == "error" {
-		job.Status = models.StatusError
 		reason = "bad_exit"
 	} else if runResult.Status() == "killed" {
 		// same as cancelled
-		job.Status = models.StatusCancelled
-		reason = "killed"
+		//job.Status = models.StatusCancelled
+		//reason = "killed"
+		return nil // see cancelled case
 	} else if runResult.Status() == "timeout" {
-		job.Status = models.StatusError
 		reason = "timeout"
 	} else if runResult.Status() == "cancelled" {
-		job.Status = models.StatusCancelled
-		reason = "client_request"
+		//job.Status = models.StatusCancelled
+		//reason = "client_request"
 		// FIXME(nikhil): Implement
 		// This should already be cancelled on server side, so might not even need to send back. Only reason would be to show that it may have partially ran?
 		// g.tasker.Cancelled( job)
-		// return nil
+		return nil
 	}
 
 	// FIXME(nikhil): Set job error details field.
@@ -269,10 +265,9 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *titan.Job, runR
 		g.Debug("Job failure ", err)
 	}
 
-	// g.tasker.Failed( job, reason, b.String())
-	// g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
-
+	//g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 	g.Debugln("reason", reason)
+	return g.tasker.Failed(job, reason, logFile)
 
 	err := g.tasker.Update(job)
 	if err != nil {
@@ -282,38 +277,45 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *titan.Job, runR
 
 	// TODO: deal with log. If it's small enough, just upload with job, if it's big, send to separate endpoint.
 
-	// g.Debug("uploading log")
-	// sw := ctx.Time("upload log")
+	//g.Debug("uploading log")
+	//sw := ctx.Time("upload log")
 
-	// // Docker driver should seek!
-	// logFile.Seek(0, 0)
-	// g.tasker.Log( job, logFile)
-	// sw.Stop()
+	//// Docker driver should seek!
+	//logFile.Seek(0, 0)
+	//g.tasker.Log(job, logFile)
+	//sw.Stop()
 	return nil
 }
 
-func (g *gofer) runTask(ctx context.Context, job *titan.Job) {
+func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	// We need this channel until the shared driver code can work with context.Context.
 	isCancelledChn := make(chan bool)
 	isCancelledCtx, isCancelledStopSignal := context.WithCancel(ctx)
 	defer isCancelledStopSignal()
 	go g.emitCancellationSignal(isCancelledCtx, job, isCancelledChn)
 
-	g.Debug("setting task status to running", "job_id", job.Id)
-	now := g.clock.Now()
-	job.StartedAt = now
-	job.Status = models.StatusRunning
-	g.tasker.Update(job)
+	l := g.WithFields(log.Fields{
+		"job_id": job.ID,
+	})
+	l.Debugln("starting job")
+
+	err := g.tasker.Start(job)
+	if err != nil {
+		l.WithError(err).Errorln("Jobserver forbade starting job, skipping")
+		return
+	}
 
 	containerTask := &goferTask{
 		command: "",
 		config:  "",
 		envVars: map[string]string{},
-		id:      job.Id,
-		image:   job.Image,
-		payload: job.Payload,
-		timeout: uint(job.Timeout),
+		id:      job.ID,
+		image:   *job.Image,
+		timeout: uint(*job.Timeout),
 	}
+	containerTask.payload = job.Payload
+
+	l.Debugln("About to run", containerTask)
 	if job.Username != "" {
 		containerTask.auth = &goferAuth{
 			username: job.Username,
@@ -322,20 +324,16 @@ func (g *gofer) runTask(ctx context.Context, job *titan.Job) {
 	}
 	log.Infoln("About to run", containerTask)
 	runResult := g.driver.Run(containerTask, isCancelledChn)
-	log.Infoln("Run result", "err", runResult.Error(), "status", runResult.Status())
+	l.WithFields(log.Fields{
+		"status": runResult.Status(),
+		"error":  runResult.Error(),
+	}).Debugln("Run result")
+
 	log := runResult.Log()
-	defer log.Close()
-
-	if runResult.Error() != nil {
-		job.Status = "error"
-		// TODO: retries on server side, we just send status back
-		// g.retryTask(ctx, job)
-	}
-
 	g.updateTaskStatusAndLog(ctx, job, runResult, log)
 }
 
-func (g *gofer) emitCancellationSignal(ctx context.Context, job *titan.Job, isCancelled chan bool) {
+func (g *gofer) emitCancellationSignal(ctx context.Context, job *client_models.Job, isCancelled chan bool) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Errorln("emitCancellationSignal panic", e)
@@ -362,7 +360,7 @@ func (g *gofer) emitCancellationSignal(ctx context.Context, job *titan.Job, isCa
 	}
 }
 
-func (g *gofer) retryTask(ctx context.Context, job *titan.Job) {
+func (g *gofer) retryTask(ctx context.Context, job *client_models.Job) {
 	// FIXME(nikhil): Handle retry count.
 	// FIXME(nikhil): Handle retry delay.
 	err := g.tasker.RetryTask(job)
