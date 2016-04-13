@@ -56,9 +56,7 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 }
 
 func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
-	// FIXME(nikhil): Can't remove this, log file in there.
-	//defer os.RemoveAll(drv.taskDir(task))
-
+	// Can't remove taskDir at the end of this, log file in there, caller should deal with it.
 	taskDirName := drv.newTaskDirName(task)
 
 	if err := os.Mkdir(taskDirName, 0777); err != nil {
@@ -110,6 +108,7 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	status, err := drv.status(exitCode, sentence)
 	return &runResult{
 		StatusValue: status,
+		Dir:         taskDirName,
 		LogData:     log,
 		Err:         err,
 	}

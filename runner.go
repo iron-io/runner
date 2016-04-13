@@ -158,7 +158,7 @@ func (g *gofer) runner(ctx context.Context) {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			log.Warnln("recovered from panic, restarting runner: stack", r, string(debug.Stack()))
+			g.Warnln("recovered from panic, restarting runner: stack", r, string(debug.Stack()))
 			go g.runner(ctx)
 		}
 	}()
@@ -226,7 +226,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 	// parser does not support encoding os.File. It seems like go-swagger does
 	// this correctly, so I've filed #73. Meanwhile, serialize to a string.
 	logFile.Seek(0, 0)
-	defer logFile.Close()
+	defer runResult.Close()
 
 	// We can't set job.Reason because Reason is generated as an empty struct for some reason o_O Not looking into this right now.
 	var reason string
