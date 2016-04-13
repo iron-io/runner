@@ -198,7 +198,7 @@ func writeFile(name, body string) error {
 	return err
 }
 
-func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string, auth drivers.Auth) (string, error) {
+func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string, auth string) (string, error) {
 	container := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Env:       envvars,
@@ -225,9 +225,13 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 		repo, tag := docker.ParseRepositoryTag(image)
 
 		authConfig := docker.AuthConfiguration{}
-		if auth != nil {
-			authConfig.Username = auth.Username()
-			authConfig.Password = auth.Password()
+		if auth != "" {
+			read := strings.NewReader(fmt.Sprintf(`{"docker.io":{"auth":"%s"}}`, auth))
+			ac, err := docker.NewAuthConfigurations(read)
+			if err != nil {
+				return "", err
+			}
+			authConfig = ac.Configs["docker.io"]
 		}
 
 		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig) // TODO AuthConfig from code
