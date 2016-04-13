@@ -309,7 +309,6 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	containerTask.payload = job.Payload
 
 	l.Debugln("About to run", containerTask)
-	log.Infoln("About to run", containerTask)
 	runResult := g.driver.Run(containerTask, isCancelledChn)
 	l.WithFields(log.Fields{
 		"status": runResult.Status(),
