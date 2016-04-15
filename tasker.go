@@ -63,21 +63,6 @@ func (t *Tasker) Start(job *client_models.Job) error {
 	return nil
 }
 
-func (t *Tasker) Update(job *client_models.Job) error {
-	l := t.log.WithFields(log.Fields{
-		"action": "UpdateJob",
-		"job_id": job.ID,
-	})
-	l.Debugln("Sending PATCH to update job", job)
-	j, err := t.api.Jobs.PatchGroupsGroupNameJobsID(jobs.NewPatchGroupsGroupNameJobsIDParams().WithGroupName(job.GroupName).WithID(job.ID).WithBody(&client_models.JobWrapper{job}))
-	if err != nil {
-		l.WithError(err).Errorln("Update failed")
-		return err
-	}
-	l.Infoln("Got back", j)
-	return nil
-}
-
 // TODO: this should be on server side
 func (t *Tasker) RetryTask(job *client_models.Job) error {
 	panic("Not implemented Retry")
