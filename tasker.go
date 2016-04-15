@@ -50,7 +50,7 @@ func (t *Tasker) Start(job *client_models.Job) error {
 	})
 	params := jobs.NewPostGroupsGroupNameJobsIDStartParams().WithGroupName(job.GroupName).WithID(job.ID)
 	body := &client_models.Start{
-		StartedAt: strfmt.DateTime(time.Now()),
+		StartedAt: strfmt.DateTime(time.Now().UTC()),
 	}
 	params.WithBody(body)
 
