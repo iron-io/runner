@@ -80,6 +80,7 @@ func (t *Tasker) IsCancelled(job *client_models.Job) bool {
 
 func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
 	param := jobs.NewPostGroupsGroupNameJobsIDSuccessParams().WithGroupName(job.GroupName).WithID(job.ID)
+	param.WithBody(&client_models.Complete{CompletedAt: strfmt.DateTime(time.Now().UTC())})
 	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDSuccess(param)
 	if err != nil {
 		log.Errorln("JobIdSuccessPost", "jobId", job.ID, "err", err)
@@ -88,7 +89,8 @@ func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
 }
 
 func (t *Tasker) Failed(job *client_models.Job, reason string, r *os.File) error {
-	param := jobs.NewPostGroupsGroupNameJobsIDErrorParams().WithGroupName(job.GroupName).WithID(job.ID).WithReason(reason)
+	param := jobs.NewPostGroupsGroupNameJobsIDErrorParams().WithGroupName(job.GroupName).WithID(job.ID)
+	param.WithBody(&client_models.Complete{CompletedAt: strfmt.DateTime(time.Now().UTC()), Reason: reason})
 
 	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDError(param)
 	if err != nil {
