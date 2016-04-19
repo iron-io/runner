@@ -6,8 +6,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	httptransport "github.com/go-swagger/go-swagger/httpkit/client"
-	strfmt "github.com/go-swagger/go-swagger/strfmt"
+	httptransport "github.com/go-openapi/runtime/client"
+	strfmt "github.com/go-openapi/strfmt"
 	client_models "github.com/iron-io/titan/runner/client/models"
 	titan_client "github.com/iron-io/titan/runner/client/titan"
 	"github.com/iron-io/titan/runner/client/titan/jobs"
