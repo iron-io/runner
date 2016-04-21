@@ -4,6 +4,7 @@ package drivers
 
 import (
 	"errors"
+	"io"
 	"os"
 )
 
@@ -14,6 +15,10 @@ type Driver interface {
 
 // RunResult will provide methods to access the job completion status, logs, etc.
 type RunResult interface {
+	// RunResult implementations should do any cleanup in here. All fields should
+	// be considered invalid after Close() is called.
+	io.Closer
+
 	// Err() is an actionable/checkable error from the container.
 	Error() error
 

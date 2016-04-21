@@ -6,8 +6,8 @@ import (
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	httptransport "github.com/go-swagger/go-swagger/httpkit/client"
-	strfmt "github.com/go-swagger/go-swagger/strfmt"
+	httptransport "github.com/go-openapi/runtime/client"
+	strfmt "github.com/go-openapi/strfmt"
 	client_models "github.com/iron-io/titan/runner/client/models"
 	titan_client "github.com/iron-io/titan/runner/client/titan"
 	"github.com/iron-io/titan/runner/client/titan/jobs"
@@ -50,28 +50,13 @@ func (t *Tasker) Start(job *client_models.Job) error {
 	})
 	params := jobs.NewPostGroupsGroupNameJobsIDStartParams().WithGroupName(job.GroupName).WithID(job.ID)
 	body := &client_models.Start{
-		StartedAt: strfmt.DateTime(time.Now()),
+		StartedAt: strfmt.DateTime(time.Now().UTC()),
 	}
 	params.WithBody(body)
 
 	j, err := t.api.Jobs.PostGroupsGroupNameJobsIDStart(params)
 	if err != nil {
 		l.WithError(err).Errorln("failed")
-		return err
-	}
-	l.Infoln("Got back", j)
-	return nil
-}
-
-func (t *Tasker) Update(job *client_models.Job) error {
-	l := t.log.WithFields(log.Fields{
-		"action": "UpdateJob",
-		"job_id": job.ID,
-	})
-	l.Debugln("Sending PATCH to update job", job)
-	j, err := t.api.Jobs.PatchGroupsGroupNameJobsID(jobs.NewPatchGroupsGroupNameJobsIDParams().WithGroupName(job.GroupName).WithID(job.ID).WithBody(&client_models.JobWrapper{job}))
-	if err != nil {
-		l.WithError(err).Errorln("Update failed")
 		return err
 	}
 	l.Infoln("Got back", j)

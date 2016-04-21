@@ -160,7 +160,7 @@ func (g *gofer) runner(ctx context.Context) {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			log.Warnln("recovered from panic, restarting runner: stack", r, string(debug.Stack()))
+			g.Warnln("recovered from panic, restarting runner: stack", r, string(debug.Stack()))
 			go g.runner(ctx)
 		}
 	}()
@@ -200,12 +200,6 @@ func (g *gofer) runner(ctx context.Context) {
 	}
 }
 
-func (g *gofer) logAndLeave(ctx context.Context, job *client_models.Job, msg string, err error) {
-	g.tasker.Update(job)
-	// TODO: panic("How do we implement")
-	// ctx.Error(msg, "err", err)
-}
-
 func (g *gofer) recordTaskCompletion(job *client_models.Job, status string, duration time.Duration) {
 	statName := fmt.Sprintf("completion.%s", status)
 	// todo: remove project stuff
@@ -228,7 +222,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 	// parser does not support encoding os.File. It seems like go-swagger does
 	// this correctly, so I've filed #73. Meanwhile, serialize to a string.
 	logFile.Seek(0, 0)
-	defer logFile.Close()
+	defer runResult.Close()
 
 	// We can't set job.Reason because Reason is generated as an empty struct for some reason o_O Not looking into this right now.
 	var reason string
@@ -260,23 +254,6 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 	//g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 	g.Debugln("reason", reason)
 	return g.tasker.Failed(job, reason, logFile)
-
-	err := g.tasker.Update(job)
-	if err != nil {
-		g.Errorln("failed to update job!")
-		return err
-	}
-
-	// TODO: deal with log. If it's small enough, just upload with job, if it's big, send to separate endpoint.
-
-	//g.Debug("uploading log")
-	//sw := ctx.Time("upload log")
-
-	//// Docker driver should seek!
-	//logFile.Seek(0, 0)
-	//g.tasker.Log(job, logFile)
-	//sw.Stop()
-	return nil
 }
 
 func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
