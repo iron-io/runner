@@ -2,6 +2,7 @@ package main
 
 import (
 	"io/ioutil"
+	"net/url"
 	"os"
 	"time"
 
@@ -21,8 +22,12 @@ type Tasker struct {
 
 // Titan tasker.
 func NewTasker(config *Config, log log.FieldLogger) *Tasker {
-	api := titan_client.New(httptransport.New("localhost:8080", "/v1", []string{"http"}), strfmt.Default)
-	f, _ := ioutil.TempFile("", "crap-")
+	u, err := url.Parse(config.ApiUrl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	api := titan_client.New(httptransport.New(u.Host, "/v1", []string{u.Scheme}), strfmt.Default)
+	f, _ := ioutil.TempFile("", "crap-") // TODO: what's this for?
 	return &Tasker{api, *f, log}
 }
 
