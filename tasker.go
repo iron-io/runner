@@ -14,20 +14,22 @@ import (
 	"github.com/iron-io/titan/runner/client/titan/jobs"
 )
 
+// Tasker is what talks to the Titan API to get and update jobs
 type Tasker struct {
-	api   *titan_client.Titan
+	api *titan_client.Titan
+	// This is a dummy empty log file used when the driver returns a nil log, because the swagger generated API requires one.
 	dummy os.File
 	log   log.FieldLogger
 }
 
-// Titan tasker.
+// NewTasker creates a new Tasker
 func NewTasker(config *Config, log log.FieldLogger) *Tasker {
 	u, err := url.Parse(config.ApiUrl)
 	if err != nil {
-		log.Fatal(err)
+		log.WithError(err).Fatalln("Reading jobserver URL", config.ApiUrl)
 	}
 	api := titan_client.New(httptransport.New(u.Host, "/v1", []string{u.Scheme}), strfmt.Default)
-	f, _ := ioutil.TempFile("", "crap-") // TODO: what's this for?
+	f, _ := ioutil.TempFile("", "crap-")
 	return &Tasker{api, *f, log}
 }
 
