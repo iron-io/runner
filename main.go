@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	log "github.com/Sirupsen/logrus"
@@ -34,8 +33,7 @@ func InitConfig() *Config {
 	if err != nil {
 		log.WithError(err).Fatalln("could not unmarshal registries from config")
 	}
-	apiUrl := viper.GetString("API_URL")
-	config.ApiUrl = apiUrl
+	config.ApiUrl = viper.GetString("api_url")
 	config.Concurrency = viper.GetInt("concurrency")
 
 	dconfig := &drivercommon.Config{}
@@ -54,11 +52,11 @@ func InitConfig() *Config {
 
 func main() {
 	viper.SetDefault("concurrency", 5)
-	viper.SetDefault("API_URL", "http://localhost:8080")
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.SetEnvPrefix("titan")
+	viper.SetDefault("api_url", "http://localhost:8080")
 	viper.SetConfigName("config")
-	viper.AddConfigPath(".")
-	viper.AutomaticEnv() // picks up env vars automatically
+	viper.AutomaticEnv()
+
 	err := viper.ReadInConfig()
 	if err != nil {
 		if _, ok := err.(viper.UnsupportedConfigError); ok {

@@ -19,7 +19,7 @@ type Config struct {
 func (c *Config) Defaults() {
 	// todo: move these to Viper defaults, see main.go
 	if c.JobsDir == "" {
-		c.JobsDir = "/jobs"
+		c.JobsDir = "./jobs"
 	} else {
 		c.JobsDir = strings.TrimRight(c.JobsDir, "/")
 	}
