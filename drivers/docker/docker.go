@@ -55,6 +55,8 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 	}, nil
 }
 
+// Run executes the docker container.
+// todo: pass in context
 func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
 	// Can't remove taskDir at the end of this, log file in there, caller should deal with it.
 	taskDirName := drv.newTaskDirName(task)
@@ -68,7 +70,6 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 		// It is possible that startTask created a container but could not start it. So always try to remove a valid container.
 		defer drv.removeContainer(container)
 	}
-
 	if err != nil {
 		return drv.error(err)
 	}
@@ -148,27 +149,12 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask, hostTaskDir strin
 		cmd = []string{"sh", "-c", task.Command()}
 	}
 
-	// config := hostTaskDir + "/" + configFile
-	// payload := hostTaskDir + "/" + payloadFile
-	// err = writeFile(config, task.Config())
-	// if err != nil {
-	// return "", err
-	// }
-
-	// err = writeFile(payload, task.Payload())
-	// if err != nil {
-	// return "", err
-	// }
-
 	envvars := make([]string, 0, len(task.EnvVars())+4)
 	for name, val := range task.EnvVars() {
 		envvars = append(envvars, name+"="+val)
 	}
 	envvars = append(envvars, "JOB_ID="+task.Id())
 	envvars = append(envvars, "PAYLOAD="+task.Payload())
-	// envvars = append(envvars, "PAYLOAD_FILE="+runtimePath(payloadFile))
-	// envvars = append(envvars, "TASK_DIR="+runtimePath(taskDir))
-	// envvars = append(envvars, "CONFIG_FILE="+runtimePath(configFile))
 	absTaskDir, err := filepath.Abs(hostTaskDir)
 	if err != nil {
 		return "", err
@@ -183,10 +169,6 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask, hostTaskDir strin
 	return cID, err
 }
 
-// func runtimePath(s ...string) string {
-// return path.Join(append([]string{runtimeDir}, s...)...)
-// }
-
 func writeFile(name, body string) error {
 	f, err := os.Create(name)
 	if err != nil {
@@ -198,6 +180,11 @@ func writeFile(name, body string) error {
 }
 
 func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string, auth string) (string, error) {
+	l := log.WithFields(log.Fields{
+		"image": image,
+		"auth":  auth,
+		// todo: add context fields here, job id, etc.
+	})
 	container := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Env:       envvars,
@@ -217,23 +204,31 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 
 	c, err := drv.docker.CreateContainer(container)
 	if err != nil {
+		l.WithError(err).Infoln("could not create container")
 		if err != docker.ErrNoSuchImage {
 			return "", err
 		}
 
+		regHost := "docker.io"
 		repo, tag := docker.ParseRepositoryTag(image)
-
+		split := strings.Split(repo, "/")
+		if len(split) >= 3 {
+			// then we have an explicit registry
+			regHost = split[0]
+		}
+		// todo: we should probably move all this auth stuff up a level, don't need to do it for every job
 		authConfig := docker.AuthConfiguration{}
 		if auth != "" {
-			read := strings.NewReader(fmt.Sprintf(`{"docker.io":{"auth":"%s"}}`, auth))
+			log.Infoln("Using auth", auth)
+			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))
 			ac, err := docker.NewAuthConfigurations(read)
 			if err != nil {
 				return "", err
 			}
-			authConfig = ac.Configs["docker.io"]
+			authConfig = ac.Configs[regHost]
 		}
 
-		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig) // TODO AuthConfig from code
+		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig)
 		if err != nil {
 			return "", err
 		}

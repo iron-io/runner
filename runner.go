@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
+	dc "github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/common/stats"
 	client_models "github.com/iron-io/titan/runner/client/models"
@@ -36,7 +39,7 @@ type goferTask struct {
 	payload string
 	timeout uint
 	drivers.ContainerTask
-	auth	string
+	auth string
 }
 
 func (g *goferTask) Command() string            { return g.command }
@@ -46,7 +49,7 @@ func (g *goferTask) Id() string                 { return g.id }
 func (g *goferTask) Image() string              { return g.image }
 func (g *goferTask) Payload() string            { return g.payload }
 func (g *goferTask) Timeout() uint              { return g.timeout }
-func (g *goferTask) Auth() string		{ return g.auth }
+func (g *goferTask) Auth() string               { return g.auth }
 
 type gofer struct {
 	conf       *Config
@@ -150,9 +153,9 @@ func Run(conf *Config, tasker *Tasker, clock common.Clock, ctx context.Context) 
 	l.Info("shutting down, let all tasks finish! or else...")
 	for i := 1; i <= conf.Concurrency; i++ {
 		<-fin
-		l.Info("task finished", "still_running", conf.Concurrency-i)
+		l.Info("task finished.", conf.Concurrency-i, "still_running")
 	}
-	l.Info("all tasks done, exiting cleanly. thank you, come again.")
+	l.Info("all tasks finished, exiting cleanly. thank you, come again.")
 }
 
 func (g *gofer) runner(ctx context.Context) {
@@ -229,7 +232,9 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 	if runResult.Status() == "success" {
 		return g.tasker.Succeeded(job, logFile)
 	} else if runResult.Status() == "error" {
+		// TODO: this isn't necessarily true, the error could have been anything along the way, like image not found or something.
 		reason = "bad_exit"
+		job.Error = runResult.Error().Error()
 	} else if runResult.Status() == "killed" {
 		// same as cancelled
 		//job.Status = models.StatusCancelled
@@ -274,6 +279,25 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 		return
 	}
 
+	regHost := "docker.io"
+	repo, _ := dc.ParseRepositoryTag(*job.Image)
+	split := strings.Split(repo, "/")
+	if len(split) >= 3 {
+		// then we have an explicit registry
+		regHost = split[0]
+	}
+	regAuth := ""
+	l.Infof("registries: %+v", g.conf.Registries)
+	reg := g.conf.Registries[regHost]
+	if reg != nil {
+		if reg.Auth != "" {
+			regAuth = reg.Auth
+		}
+		if reg.Username != "" {
+			regAuth = base64.StdEncoding.EncodeToString([]byte(reg.Username + ":" + reg.Password))
+		}
+	}
+
 	containerTask := &goferTask{
 		command: "",
 		config:  "",
@@ -281,7 +305,7 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 		id:      job.ID,
 		image:   *job.Image,
 		timeout: uint(*job.Timeout),
-		auth:    job.Auth,
+		auth:    regAuth,
 	}
 	containerTask.payload = job.Payload
 

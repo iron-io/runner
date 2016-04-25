@@ -1,5 +1,4 @@
-#FROM treeder/ruby-dind
-FROM iron/go
+FROM iron/base:edge
 
 RUN echo '@community http://nl.alpinelinux.org/alpine/edge/community' >> /etc/apk/repositories
 RUN apk update && apk upgrade \

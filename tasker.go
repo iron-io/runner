@@ -97,7 +97,11 @@ func (t *Tasker) Succeeded(job *client_models.Job, r *os.File) error {
 
 func (t *Tasker) Failed(job *client_models.Job, reason string, r *os.File) error {
 	param := jobs.NewPostGroupsGroupNameJobsIDErrorParams().WithGroupName(job.GroupName).WithID(job.ID)
-	param.WithBody(&client_models.Complete{CompletedAt: strfmt.DateTime(time.Now().UTC()), Reason: reason})
+	param.WithBody(&client_models.Complete{
+		CompletedAt: strfmt.DateTime(time.Now().UTC()),
+		Reason:      reason,
+		Error:       job.Error,
+	})
 
 	_, err := t.api.Jobs.PostGroupsGroupNameJobsIDError(param)
 	if err != nil {
