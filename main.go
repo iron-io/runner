@@ -46,11 +46,6 @@ func InitConfig() *Config {
 	dconfig.Defaults()
 	config.DriverConfig = dconfig
 
-	// err := viper.UnmarshalKey("registries", config.Registries)
-	// if err != nil {
-	// 	log.WithError(err).Fatalln("could not unmarshal registries from config")
-	// }
-
 	return config
 }
 
