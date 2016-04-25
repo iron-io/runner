@@ -182,7 +182,6 @@ func writeFile(name, body string) error {
 func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string, auth string) (string, error) {
 	l := log.WithFields(log.Fields{
 		"image": image,
-		"auth":  auth,
 		// todo: add context fields here, job id, etc.
 	})
 	container := docker.CreateContainerOptions{
@@ -204,10 +203,10 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 
 	c, err := drv.docker.CreateContainer(container)
 	if err != nil {
-		l.WithError(err).Infoln("could not create container")
 		if err != docker.ErrNoSuchImage {
 			return "", err
 		}
+		l.WithError(err).Infoln("could not create container, trying to pull...")
 
 		regHost := "docker.io"
 		repo, tag := docker.ParseRepositoryTag(image)
@@ -219,7 +218,7 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 		// todo: we should probably move all this auth stuff up a level, don't need to do it for every job
 		authConfig := docker.AuthConfiguration{}
 		if auth != "" {
-			log.Infoln("Using auth", auth)
+			l.Debugln("Using auth", auth)
 			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))
 			ac, err := docker.NewAuthConfigurations(read)
 			if err != nil {

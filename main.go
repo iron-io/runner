@@ -73,7 +73,6 @@ func main() {
 			log.WithError(err).Fatalln("Error reading config file")
 		}
 	}
-	log.Println("CONFIG:", os.Getenv("CONFIG"))
 	if os.Getenv("CONFIG") != "" {
 		viper.SetConfigType("json")
 		err = viper.ReadConfig(bytes.NewBufferString(os.Getenv("CONFIG")))
@@ -83,10 +82,9 @@ func main() {
 	}
 	config := InitConfig()
 	common.SetLogLevel()
-	log.Infoln("regSSFASDF", viper.Get("registries"))
 
-	log.Infof("Config: %+v", config)
-	viper.Debug()
+	log.Debugf("Config: %+v", config)
+	// viper.Debug()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := make(chan os.Signal, 1)
