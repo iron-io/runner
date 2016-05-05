@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"bytes"
@@ -15,8 +15,8 @@ import (
 	dc "github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/common/stats"
-	client_models "github.com/iron-io/titan/runner/client/models"
 	"github.com/iron-io/titan/runner/drivers"
+	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/iron-io/titan/runner/drivers/docker"
 	"golang.org/x/net/context"
 )
@@ -51,9 +51,23 @@ func (g *goferTask) Payload() string            { return g.payload }
 func (g *goferTask) Timeout() uint              { return g.timeout }
 func (g *goferTask) Auth() string               { return g.auth }
 
+type Config struct {
+	ApiUrl       string `json:"api_url"`
+	Concurrency  int    `json:"concurrency"`
+	DriverConfig *drivercommon.Config
+	Registries   map[string]*Registry `json:"registries"`
+}
+
+// Registry holds auth for a registry
+type Registry struct {
+	Auth     string `json:"auth"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 type gofer struct {
 	conf       *Config
-	tasker     *Tasker
+	tasker     Tasker
 	clock      common.Clock
 	hostname   string
 	instanceID string
@@ -62,7 +76,7 @@ type gofer struct {
 	log.FieldLogger
 }
 
-func newGofer(conf *Config, tasker *Tasker, clock common.Clock, hostname string, driver drivers.Driver, logger log.FieldLogger) (*gofer, error) {
+func newGofer(conf *Config, tasker Tasker, clock common.Clock, hostname string, driver drivers.Driver, logger log.FieldLogger) (*gofer, error) {
 	var err error
 	g := &gofer{
 		conf:        conf,
@@ -116,7 +130,7 @@ func instanceID() (string, error) {
 	return buf.String(), nil
 }
 
-func Run(conf *Config, tasker *Tasker, clock common.Clock, ctx context.Context) {
+func Run(conf *Config, tasker Tasker, clock common.Clock, ctx context.Context) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
@@ -168,12 +182,12 @@ func (g *gofer) runner(ctx context.Context) {
 		}
 	}()
 
-	// Job() blocks indefinitely until it can get a job. We want to respect
-	// `ctx.Done()` for shutdowns, so we cannot directly stick Job() into the
+	// drivers.ContainerTask() blocks indefinitely until it can get a job. We want to respect
+	// `ctx.Done()` for shutdowns, so we cannot directly stick drivers.ContainerTask() into the
 	// select. We use this channel and goroutine to get around it.  This does
-	// mean that the goroutine wrapping Job() never shuts down, this is OK since
+	// mean that the goroutine wrapping drivers.ContainerTask() never shuts down, this is OK since
 	// the process is about to quit.
-	tasks := make(chan *client_models.Job, 1)
+	tasks := make(chan drivers.ContainerTask, 1)
 	go func() {
 		for {
 			tasks <- g.tasker.Job()
@@ -191,19 +205,19 @@ func (g *gofer) runner(ctx context.Context) {
 				return
 			case task := <-tasks:
 				sw.Stop()
-				g.Debug("starting job", "job_id", task.ID)
+				g.Debug("starting job", "job_id", task.Id())
 
 				sw = g.timer("run_job")
 				g.runTask(ctx, task)
 				sw.Stop()
 
-				g.Debug("job finished", "job_id", task.ID)
+				g.Debug("job finished", "job_id", task.Id())
 			}
 		}
 	}
 }
 
-func (g *gofer) recordTaskCompletion(job *client_models.Job, status string, duration time.Duration) {
+func (g *gofer) recordTaskCompletion(job drivers.ContainerTask, status string, duration time.Duration) {
 	statName := fmt.Sprintf("completion.%s", status)
 	// todo: remove project stuff
 	projectStatName := fmt.Sprintf("p.%s.completion.%s", status)
@@ -215,7 +229,7 @@ func (g *gofer) recordTaskCompletion(job *client_models.Job, status string, dura
 }
 
 // This will close logFile
-func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.Job, runResult drivers.RunResult, logFile *os.File) error {
+func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job drivers.ContainerTask, runResult drivers.RunResult, logFile *os.File) error {
 	g.Debug("updating task")
 
 	// Docker driver should seek!
@@ -234,7 +248,9 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 	} else if runResult.Status() == "error" {
 		// TODO: this isn't necessarily true, the error could have been anything along the way, like image not found or something.
 		reason = "bad_exit"
-		job.Error = runResult.Error().Error()
+		// TODO: Need a way to pass this to the tasker
+		// I feel this state checking can move to the tasker.
+		//job.Error = runResult.Error().Error()
 	} else if runResult.Status() == "killed" {
 		// same as cancelled
 		//job.Status = models.StatusCancelled
@@ -253,7 +269,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 
 	// FIXME(nikhil): Set job error details field.
 	if err := runResult.Error(); err != nil {
-		g.Debug("Job failure ", err)
+		g.Debug("drivers.ContainerTask failure ", err)
 	}
 
 	//g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
@@ -261,7 +277,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job *client_models.J
 	return g.tasker.Failed(job, reason, logFile)
 }
 
-func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
+func (g *gofer) runTask(ctx context.Context, job drivers.ContainerTask) {
 	// We need this channel until the shared driver code can work with context.Context.
 	isCancelledChn := make(chan bool)
 	isCancelledCtx, isCancelledStopSignal := context.WithCancel(ctx)
@@ -269,18 +285,18 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	go g.emitCancellationSignal(isCancelledCtx, job, isCancelledChn)
 
 	l := g.WithFields(log.Fields{
-		"job_id": job.ID,
+		"job_id": job.Id(),
 	})
 	l.Debugln("starting job")
 
 	err := g.tasker.Start(job)
 	if err != nil {
-		l.WithError(err).Errorln("Jobserver forbade starting job, skipping")
+		l.WithError(err).Errorln("drivers.ContainerTaskserver forbade starting job, skipping")
 		return
 	}
 
 	regHost := "docker.io"
-	repo, _ := dc.ParseRepositoryTag(*job.Image)
+	repo, _ := dc.ParseRepositoryTag(job.Image())
 	split := strings.Split(repo, "/")
 	if len(split) >= 3 {
 		// then we have an explicit registry
@@ -302,12 +318,12 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 		command: "",
 		config:  "",
 		envVars: map[string]string{},
-		id:      job.ID,
-		image:   *job.Image,
-		timeout: uint(*job.Timeout),
+		id:      job.Id(),
+		image:   job.Image(),
+		timeout: job.Timeout(),
 		auth:    regAuth,
 	}
-	containerTask.payload = job.Payload
+	containerTask.payload = job.Payload()
 
 	l.Debugln("About to run", containerTask)
 	runResult := g.driver.Run(containerTask, isCancelledChn)
@@ -320,7 +336,7 @@ func (g *gofer) runTask(ctx context.Context, job *client_models.Job) {
 	g.updateTaskStatusAndLog(ctx, job, runResult, log)
 }
 
-func (g *gofer) emitCancellationSignal(ctx context.Context, job *client_models.Job, isCancelled chan bool) {
+func (g *gofer) emitCancellationSignal(ctx context.Context, job drivers.ContainerTask, isCancelled chan bool) {
 	defer func() {
 		if e := recover(); e != nil {
 			log.Errorln("emitCancellationSignal panic", e)
@@ -344,16 +360,6 @@ func (g *gofer) emitCancellationSignal(ctx context.Context, job *client_models.J
 			case <-g.clock.After(5 * time.Second):
 			}
 		}
-	}
-}
-
-func (g *gofer) retryTask(ctx context.Context, job *client_models.Job) {
-	// FIXME(nikhil): Handle retry count.
-	// FIXME(nikhil): Handle retry delay.
-	err := g.tasker.RetryTask(job)
-	if err != nil {
-		g.Error("unable to get retry task", "err", err, "job_id", job)
-		return
 	}
 }
 

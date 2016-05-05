@@ -8,27 +8,15 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/common"
+	"github.com/iron-io/titan/runner"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
+	"github.com/iron-io/titan/runner/tasker"
 	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 )
 
-type Config struct {
-	ApiUrl       string `json:"api_url"`
-	Concurrency  int    `json:"concurrency"`
-	DriverConfig *drivercommon.Config
-	Registries   map[string]*Registry `json:"registries"`
-}
-
-// Registry holds auth for a registry
-type Registry struct {
-	Auth     string `json:"auth"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-func InitConfig() *Config {
-	config := &Config{}
+func InitConfig() *runner.Config {
+	config := &runner.Config{}
 	err := viper.Unmarshal(config)
 	if err != nil {
 		log.WithError(err).Fatalln("could not unmarshal registries from config")
@@ -46,9 +34,6 @@ func InitConfig() *Config {
 
 	return config
 }
-
-// Put generated client inside ./client and call the API package 'titan'
-//go:generate swagger generate client -t ./client -f ../jobserver/swagger/api.yml -c titan
 
 func main() {
 	viper.SetDefault("concurrency", 5)
@@ -95,7 +80,7 @@ func main() {
 	l := log.WithFields(log.Fields{
 		"hostname": hostname,
 	})
-	tasker := NewTasker(config, l)
+	tasker := tasker.New(config.ApiUrl, l)
 
-	Run(config, tasker, BoxTime{}, ctx)
+	runner.Run(config, tasker, runner.BoxTime{}, ctx)
 }
