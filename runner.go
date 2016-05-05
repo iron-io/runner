@@ -52,10 +52,11 @@ func (g *goferTask) Timeout() uint              { return g.timeout }
 func (g *goferTask) Auth() string               { return g.auth }
 
 type Config struct {
-	ApiUrl       string `json:"api_url"`
-	Concurrency  int    `json:"concurrency"`
-	DriverConfig *drivercommon.Config
-	Registries   map[string]*Registry `json:"registries"`
+	Concurrency  int                  `json:"concurrency"`
+	DriverConfig *drivercommon.Config `json:"driver"`
+	// FIXME: Move this out of runner config. This auth should be retrievable
+	// from the ContainerTask's Auth() method.
+	Registries map[string]*Registry `json:"registries"`
 }
 
 // Registry holds auth for a registry
