@@ -2,17 +2,14 @@ package runner
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
-	dc "github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/common/stats"
 	"github.com/iron-io/titan/runner/drivers"
@@ -27,43 +24,9 @@ func (BoxTime) Now() time.Time                         { return time.Now() }
 func (BoxTime) Sleep(d time.Duration)                  { time.Sleep(d) }
 func (BoxTime) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
-// goferTask implements drivers.ContainerTask interface, which is the only point in which
-// Titan and gorunner must agree in order to be able to share blades (container
-// engine drivers).
-type goferTask struct {
-	command string
-	config  string
-	envVars map[string]string
-	id      string
-	image   string
-	payload string
-	timeout uint
-	drivers.ContainerTask
-	auth string
-}
-
-func (g *goferTask) Command() string            { return g.command }
-func (g *goferTask) Config() string             { return g.config }
-func (g *goferTask) EnvVars() map[string]string { return g.envVars }
-func (g *goferTask) Id() string                 { return g.id }
-func (g *goferTask) Image() string              { return g.image }
-func (g *goferTask) Payload() string            { return g.payload }
-func (g *goferTask) Timeout() uint              { return g.timeout }
-func (g *goferTask) Auth() string               { return g.auth }
-
 type Config struct {
 	Concurrency  int                  `json:"concurrency"`
 	DriverConfig *drivercommon.Config `json:"driver"`
-	// FIXME: Move this out of runner config. This auth should be retrievable
-	// from the ContainerTask's Auth() method.
-	Registries map[string]*Registry `json:"registries"`
-}
-
-// Registry holds auth for a registry
-type Registry struct {
-	Auth     string `json:"auth"`
-	Username string `json:"username"`
-	Password string `json:"password"`
 }
 
 type gofer struct {
@@ -295,38 +258,8 @@ func (g *gofer) runTask(ctx context.Context, job drivers.ContainerTask) {
 		return
 	}
 
-	regHost := "docker.io"
-	repo, _ := dc.ParseRepositoryTag(job.Image())
-	split := strings.Split(repo, "/")
-	if len(split) >= 3 {
-		// then we have an explicit registry
-		regHost = split[0]
-	}
-	regAuth := ""
-	l.Infof("registries: %+v", g.conf.Registries)
-	reg := g.conf.Registries[regHost]
-	if reg != nil {
-		if reg.Auth != "" {
-			regAuth = reg.Auth
-		}
-		if reg.Username != "" {
-			regAuth = base64.StdEncoding.EncodeToString([]byte(reg.Username + ":" + reg.Password))
-		}
-	}
-
-	containerTask := &goferTask{
-		command: "",
-		config:  "",
-		envVars: map[string]string{},
-		id:      job.Id(),
-		image:   job.Image(),
-		timeout: job.Timeout(),
-		auth:    regAuth,
-	}
-	containerTask.payload = job.Payload()
-
-	l.Debugln("About to run", containerTask)
-	runResult := g.driver.Run(containerTask, isCancelledChn)
+	l.Debugln("About to run", job.Id())
+	runResult := g.driver.Run(job, isCancelledChn)
 	l.WithFields(log.Fields{
 		"status": runResult.Status(),
 		"error":  runResult.Error(),
