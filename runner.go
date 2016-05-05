@@ -66,17 +66,17 @@ type Registry struct {
 }
 
 type gofer struct {
+	*common.Environment
 	conf       *Config
 	tasker     Tasker
 	clock      common.Clock
 	hostname   string
 	instanceID string
 	driver     drivers.Driver
-	*common.Environment
 	log.FieldLogger
 }
 
-func newGofer(conf *Config, tasker Tasker, clock common.Clock, hostname string, driver drivers.Driver, logger log.FieldLogger) (*gofer, error) {
+func newGofer(env *common.Environment, conf *Config, tasker Tasker, clock common.Clock, hostname string, driver drivers.Driver, logger log.FieldLogger) (*gofer, error) {
 	var err error
 	g := &gofer{
 		conf:        conf,
@@ -85,9 +85,7 @@ func newGofer(conf *Config, tasker Tasker, clock common.Clock, hostname string, 
 		driver:      driver,
 		hostname:    hostname,
 		FieldLogger: logger,
-		Environment: common.NewEnvironment(func(e *common.Environment) {
-			// Put stats initialization based off config over here.
-		}),
+		Environment: env,
 	}
 	g.instanceID, err = instanceID()
 	if err != nil {
@@ -130,7 +128,7 @@ func instanceID() (string, error) {
 	return buf.String(), nil
 }
 
-func Run(conf *Config, tasker Tasker, clock common.Clock, ctx context.Context) {
+func Run(env *common.Environment, conf *Config, tasker Tasker, clock common.Clock, ctx context.Context) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
@@ -154,7 +152,7 @@ func Run(conf *Config, tasker Tasker, clock common.Clock, ctx context.Context) {
 			sl := l.WithFields(log.Fields{
 				"runner_id": i,
 			})
-			g, err := newGofer(conf, tasker, clock, hostname, docker, sl)
+			g, err := newGofer(env, conf, tasker, clock, hostname, docker, sl)
 			if err != nil {
 				l.Errorln("Error creating runner", i, "err", err)
 				return
@@ -177,7 +175,8 @@ func (g *gofer) runner(ctx context.Context) {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
-			g.Warnln("recovered from panic, restarting runner: stack", r, string(debug.Stack()))
+			g.Warnln("recovered from panic, restarting runner: stack", r)
+			debug.PrintStack()
 			go g.runner(ctx)
 		}
 	}()
@@ -291,7 +290,7 @@ func (g *gofer) runTask(ctx context.Context, job drivers.ContainerTask) {
 
 	err := g.tasker.Start(job)
 	if err != nil {
-		l.WithError(err).Errorln("drivers.ContainerTaskserver forbade starting job, skipping")
+		l.WithError(err).Errorln("Job Server forbade starting job, skipping")
 		return
 	}
 
@@ -340,6 +339,7 @@ func (g *gofer) emitCancellationSignal(ctx context.Context, job drivers.Containe
 	defer func() {
 		if e := recover(); e != nil {
 			log.Errorln("emitCancellationSignal panic", e)
+			debug.PrintStack()
 			go g.emitCancellationSignal(ctx, job, isCancelled)
 		}
 
