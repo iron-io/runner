@@ -33,7 +33,7 @@ type DockerDriver struct {
 }
 
 func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
-	// docker, err := docker.NewClient(conf.Docker)
+	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, err
@@ -99,12 +99,13 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 		return nil, err
 	}
 
+	// It's possible the execution could be finished here, then what? http://docs.docker.com.s3-website-us-east-1.amazonaws.com/engine/reference/api/docker_remote_api_v1.20/#wait-a-container
 	exitCode, err := drv.docker.WaitContainer(container)
 	time.Sleep(10 * time.Millisecond)
 
 	done <- struct{}{}
 	if err != nil {
-		return drv.error(err), err
+		return nil, err
 	}
 	status, err := drv.status(exitCode, sentence)
 	// the err returned above is an error from running user code, so we don't return it from this method.
@@ -154,7 +155,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask, hostTaskDir strin
 
 	cID, err := drv.createContainer(envvars, cmd, task.Image(), absTaskDir, task.Auth())
 	if err != nil {
-		return cID, err
+		return "", err
 	}
 
 	err = drv.docker.StartContainer(cID, nil)
