@@ -1,8 +1,6 @@
 package runner
 
 import (
-	"io"
-
 	"github.com/iron-io/titan/runner/drivers"
 )
 
@@ -17,11 +15,6 @@ type Tasker interface {
 	IsCancelled(drivers.ContainerTask) bool
 
 	Start(drivers.ContainerTask) error
-	Succeeded(drivers.ContainerTask, io.ReadSeeker) error
-	Failed(drivers.ContainerTask, string, io.ReadSeeker) error
-}
-
-type Logger interface {
-	// Log attempts to upload a given log for a task once [for now].
-	Log(drivers.ContainerTask, io.ReadSeeker) error
+	Succeeded(drivers.ContainerTask) error
+	Failed(drivers.ContainerTask, string) error
 }

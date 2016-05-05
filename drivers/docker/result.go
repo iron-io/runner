@@ -6,7 +6,6 @@ type runResult struct {
 	Dir         string
 	Err         error
 	StatusValue string
-	LogData     *os.File
 }
 
 func (runResult *runResult) Error() error {
@@ -15,10 +14,6 @@ func (runResult *runResult) Error() error {
 
 func (runResult *runResult) Status() string {
 	return runResult.StatusValue
-}
-
-func (runResult *runResult) Log() *os.File {
-	return runResult.LogData
 }
 
 func (runResult *runResult) Close() error {

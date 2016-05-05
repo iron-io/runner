@@ -5,7 +5,6 @@ package drivers
 import (
 	"errors"
 	"io"
-	"os"
 )
 
 type Driver interface {
@@ -25,14 +24,6 @@ type RunResult interface {
 	// Status() should return the current status of the task.
 	// It must never return Enqueued.
 	Status() string
-
-	// Log() will be a Reader interface that allows the driver to read the content
-	// of the log output for the task that was run.
-	// Each driver is free to implement this in its own way, either streaming or at
-	// the end of execution.
-	//
-	// It must return a valid Reader at any time.
-	Log() *os.File // TODO: change to io.Reader
 }
 
 type ContainerTask interface {
@@ -43,7 +34,10 @@ type ContainerTask interface {
 	Image() string
 	Payload() string
 	Timeout() uint
-	Auth()	string
+	Auth() string
+	// Drivers should write output log to this writer. Must be non-nil. Use
+	// io.Discard if log is irrelevant.
+	Logger() io.Writer
 }
 
 // Set of acceptable errors coming from container engines to TaskRunner

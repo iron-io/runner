@@ -191,23 +191,13 @@ func (g *gofer) recordTaskCompletion(job drivers.ContainerTask, status string, d
 	g.Time("task", projectStatName, duration, 1.0)
 }
 
-// This will close logFile
-func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job drivers.ContainerTask, runResult drivers.RunResult, logFile *os.File) error {
+func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job drivers.ContainerTask, runResult drivers.RunResult) error {
 	g.Debug("updating task")
-
-	// Docker driver should seek!
-	// This is REALLY stupid. The swagger online generator has obviously not been
-	// tested because it can't generate a correct swagger definition for a form
-	// upload that has a file field. It uses Google's query parser but that
-	// parser does not support encoding os.File. It seems like go-swagger does
-	// this correctly, so I've filed #73. Meanwhile, serialize to a string.
-	logFile.Seek(0, 0)
 	defer runResult.Close()
 
-	// We can't set job.Reason because Reason is generated as an empty struct for some reason o_O Not looking into this right now.
 	var reason string
 	if runResult.Status() == "success" {
-		return g.tasker.Succeeded(job, logFile)
+		return g.tasker.Succeeded(job)
 	} else if runResult.Status() == "error" {
 		// TODO: this isn't necessarily true, the error could have been anything along the way, like image not found or something.
 		reason = "bad_exit"
@@ -237,7 +227,7 @@ func (g *gofer) updateTaskStatusAndLog(ctx context.Context, job drivers.Containe
 
 	//g.recordTaskCompletion(job, job.Status, now.Sub(job.StartedAt))
 	g.Debugln("reason", reason)
-	return g.tasker.Failed(job, reason, logFile)
+	return g.tasker.Failed(job, reason)
 }
 
 func (g *gofer) runTask(ctx context.Context, job drivers.ContainerTask) {
@@ -265,8 +255,7 @@ func (g *gofer) runTask(ctx context.Context, job drivers.ContainerTask) {
 		"error":  runResult.Error(),
 	}).Debugln("Run result")
 
-	log := runResult.Log()
-	g.updateTaskStatusAndLog(ctx, job, runResult, log)
+	g.updateTaskStatusAndLog(ctx, job, runResult)
 }
 
 func (g *gofer) emitCancellationSignal(ctx context.Context, job drivers.ContainerTask, isCancelled chan bool) {

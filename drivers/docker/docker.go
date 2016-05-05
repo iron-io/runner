@@ -80,9 +80,9 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	defer close(done)
 	go drv.nanny(container, task, sentence, done, isCancelled)
 
-	log, err := drv.ensureLogFile(taskDirName)
-	if err != nil {
-		return drv.error(err)
+	log := task.Logger()
+	if log == nil {
+		return drv.error(fmt.Errorf("Received nil logger"))
 	}
 
 	w := &limitedWriter{W: log, N: 8 * 1024 * 1024 * 1024} // TODO get max log size from somewhere
@@ -110,7 +110,6 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	return &runResult{
 		StatusValue: status,
 		Dir:         taskDirName,
-		LogData:     log,
 		Err:         err,
 	}
 }
@@ -119,14 +118,6 @@ func (drv *DockerDriver) newTaskDirName(task drivers.ContainerTask) string {
 	// Add a random suffix so that in the rare/erroneous case that we get a repeat job ID, we don't behave badly.
 	gen := drv.rand.Uint32()
 	return filepath.Join(drv.conf.JobsDir, fmt.Sprintf("%s-%d", task.Id(), gen))
-}
-
-func (drv *DockerDriver) ensureLogFile(dir string) (*os.File, error) {
-	log, err := os.Create(filepath.Join(dir, logFile))
-	if err != nil {
-		return nil, fmt.Errorf("%v %v", "couldn't open task log", err)
-	}
-	return log, nil
 }
 
 func (drv *DockerDriver) error(err error) *runResult {
