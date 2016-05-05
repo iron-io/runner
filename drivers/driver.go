@@ -8,8 +8,8 @@ import (
 )
 
 type Driver interface {
-	// Run(*models.Job) RunResult
-	Run(task ContainerTask, isCancelled chan bool) RunResult
+	// Run executes the task. If task runs, drivers.RunResult will be returned. If something fails outside the task (eg: Docker), it will return error.
+	Run(task ContainerTask, isCancelled chan bool) (RunResult, error)
 }
 
 // RunResult will provide methods to access the job completion status, logs, etc.

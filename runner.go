@@ -33,29 +33,36 @@ type gofer struct {
 	*common.Environment
 	conf       *Config
 	tasker     Tasker
+	stopper    Stopper
 	clock      common.Clock
-	hostname   string
 	instanceID string
+	runnerNum  int
 	driver     drivers.Driver
 	log.FieldLogger
 }
 
-func newGofer(env *common.Environment, conf *Config, tasker Tasker, clock common.Clock, hostname string, driver drivers.Driver, logger log.FieldLogger) (*gofer, error) {
+func newGofer(env *common.Environment, conf *Config, tasker Tasker, clock common.Clock, runnerNum int, driver drivers.Driver, stopper Stopper, logger log.FieldLogger) (*gofer, error) {
 	var err error
-	g := &gofer{
-		conf:        conf,
-		tasker:      tasker,
-		clock:       clock,
-		driver:      driver,
-		hostname:    hostname,
-		FieldLogger: logger,
-		Environment: env,
-	}
-	g.instanceID, err = instanceID()
+	instanceID, err := instanceID()
 	if err != nil {
 		return nil, err
 	}
+	logger = logger.WithFields(log.Fields{
+		"instance_id": instanceID,
+		"runner_num":  runnerNum,
+	})
 
+	g := &gofer{
+		instanceID:  instanceID,
+		runnerNum:   runnerNum,
+		conf:        conf,
+		tasker:      tasker,
+		stopper:     stopper,
+		clock:       clock,
+		driver:      driver,
+		FieldLogger: logger,
+		Environment: env,
+	}
 	return g, nil
 }
 
@@ -92,56 +99,97 @@ func instanceID() (string, error) {
 	return buf.String(), nil
 }
 
-func Run(env *common.Environment, conf *Config, tasker Tasker, clock common.Clock, ctx context.Context) {
+// TODO: split gofer and runner into separate files
+
+type Runner struct {
+	cancel context.CancelFunc
+	log.FieldLogger
+	fin      chan struct{}
+	conf     *Config
+	tasker   Tasker
+	clock    common.Clock
+	ctx      context.Context
+	env      *common.Environment
+	hostname string
+}
+
+func NewRunner(env *common.Environment, ctx context.Context, conf *Config, tasker Tasker) *Runner {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatal("couldn't resolve hostname", "err", err)
 	}
+
 	l := log.WithFields(log.Fields{
 		"hostname": hostname,
 	})
+	r := &Runner{
+		ctx:         ctx,
+		env:         env,
+		conf:        conf,
+		tasker:      tasker,
+		FieldLogger: l,
+		clock:       BoxTime{},
+		hostname:    hostname,
+	}
+	return r
+}
 
-	docker, err := docker.NewDocker(conf.DriverConfig, hostname)
+func (r *Runner) Run() {
+
+	docker, err := docker.NewDocker(r.conf.DriverConfig, r.hostname)
 	if err != nil {
-		l.Fatal("couldn't start container driver", "err", err)
+		r.Fatal("couldn't start container driver", "err", err)
 	}
 
-	l.Infoln("starting", conf.Concurrency, "runners")
-	fin := make(chan struct{}, conf.Concurrency)
-	for i := 0; i < conf.Concurrency; i++ {
+	// making a new context with cancel here so we can cancel from here down the tree, while still respecting the SIG cancel in main.
+	ctx2, cancel := context.WithCancel(r.ctx)
+	r.cancel = cancel
+
+	r.Infoln("starting", r.conf.Concurrency, "runners")
+	fin := make(chan struct{}, r.conf.Concurrency)
+	r.fin = fin
+	for i := 0; i < r.conf.Concurrency; i++ {
 		go func(i int) {
 			defer func() {
 				fin <- struct{}{}
 			}()
-			sl := l.WithFields(log.Fields{
-				"runner_id": i,
-			})
-			g, err := newGofer(env, conf, tasker, clock, hostname, docker, sl)
+			g, err := newGofer(r.env, r.conf, r.tasker, r.clock, i, docker, r, r)
 			if err != nil {
-				l.Errorln("Error creating runner", i, "err", err)
+				r.WithError(err).Errorln("Error creating runner", i)
 				return
 			}
-			g.runner(ctx)
+			g.run(ctx2)
 		}(i)
 	}
 
-	<-ctx.Done()
-	l.Info("shutting down, let all tasks finish! or else...")
-	for i := 1; i <= conf.Concurrency; i++ {
-		<-fin
-		l.Info("task finished.", conf.Concurrency-i, "still_running")
-	}
-	l.Info("all tasks finished, exiting cleanly. thank you, come again.")
+	<-r.ctx.Done() // from ctrl-c or something external
+	r.Info("shutting down, let all tasks finish! or else...")
+	r.waitForGophersToFinish()
+	r.Info("all tasks finished, exiting cleanly. thank you, come again.")
+
+}
+func (r *Runner) Stop() {
+	r.cancel()
+	r.waitForGophersToFinish()
+	// TODO: Restart docker, check memory issues, check disk space issues, etc. Also do those checks in a timer so it doesn't get to this point.
+	r.Run()
 }
 
-func (g *gofer) runner(ctx context.Context) {
+func (r *Runner) waitForGophersToFinish() {
+	for i := 1; i <= r.conf.Concurrency; i++ {
+		<-r.fin
+		r.Info("task finished.", r.conf.Concurrency-i, "still running")
+	}
+}
+
+func (g *gofer) run(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			g.Inc("runner", "panicked", 1, 0.1)
 			g.Inc("runner", g.instanceID+".panicked", 1, 0.1)
 			g.Warnln("recovered from panic, restarting runner: stack", r)
 			debug.PrintStack()
-			go g.runner(ctx)
+			go g.run(ctx)
 		}
 	}()
 
@@ -249,13 +297,22 @@ func (g *gofer) runTask(ctx context.Context, job drivers.ContainerTask) {
 	}
 
 	l.Debugln("About to run", job.Id())
-	runResult := g.driver.Run(job, isCancelledChn)
-	l.WithFields(log.Fields{
-		"status": runResult.Status(),
-		"error":  runResult.Error(),
-	}).Debugln("Run result")
-
-	g.updateTaskStatusAndLog(ctx, job, runResult)
+	runResult, err := g.driver.Run(job, isCancelledChn)
+	if err != nil {
+		// If err is set, then this is a Titan system error, not an error in the user code execution
+		l.WithError(err).Errorln("system error executing job!")
+		// initiate shutdown and recovery sequence, this is most likely Docker f'ing up.
+		// TODO: What should we do about job here?  Send error back and let it retry on another server?
+		// If Docker never started the job, we can probably tell swapi to give it to someone else without doing a retry or anything.
+		g.stopper.Stop()
+	} else {
+		// Job ran ok.
+		l.WithFields(log.Fields{
+			"status":    runResult.Status(),
+			"job_error": runResult.Error(),
+		}).Debugln("job result")
+		g.updateTaskStatusAndLog(ctx, job, runResult)
+	}
 }
 
 func (g *gofer) emitCancellationSignal(ctx context.Context, job drivers.ContainerTask, isCancelled chan bool) {

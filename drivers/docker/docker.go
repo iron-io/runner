@@ -33,7 +33,7 @@ type DockerDriver struct {
 }
 
 func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
-	// docker, err := docker.NewClient(conf.Docker)
+	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
 		return nil, err
@@ -55,14 +55,14 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 	}, nil
 }
 
-// Run executes the docker container.
+// Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
 // todo: pass in context
-func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) drivers.RunResult {
+func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) (drivers.RunResult, error) {
 	// Can't remove taskDir at the end of this, log file in there, caller should deal with it.
 	taskDirName := drv.newTaskDirName(task)
 
 	if err := os.Mkdir(taskDirName, 0777); err != nil {
-		return drv.error(err)
+		return nil, err
 	}
 
 	container, err := drv.startTask(task, taskDirName)
@@ -71,7 +71,7 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 		defer drv.removeContainer(container)
 	}
 	if err != nil {
-		return drv.error(err)
+		return nil, err
 	}
 
 	sentence := make(chan string, 1)
@@ -82,7 +82,7 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 
 	log := task.Logger()
 	if log == nil {
-		return drv.error(fmt.Errorf("Received nil logger"))
+		return nil, fmt.Errorf("Received nil logger")
 	}
 
 	w := &limitedWriter{W: log, N: 8 * 1024 * 1024 * 1024} // TODO get max log size from somewhere
@@ -96,7 +96,7 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
 	defer closer.Close()
 	if err != nil {
-		return drv.error(err)
+		return nil, err
 	}
 
 	exitCode, err := drv.docker.WaitContainer(container)
@@ -104,14 +104,15 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 
 	done <- struct{}{}
 	if err != nil {
-		return drv.error(err)
+		return drv.error(err), err
 	}
 	status, err := drv.status(exitCode, sentence)
+	// the err returned above is an error from running user code, so we don't return it from this method.
 	return &runResult{
 		StatusValue: status,
 		Dir:         taskDirName,
 		Err:         err,
-	}
+	}, nil
 }
 
 func (drv *DockerDriver) newTaskDirName(task drivers.ContainerTask) string {
@@ -153,7 +154,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask, hostTaskDir strin
 
 	cID, err := drv.createContainer(envvars, cmd, task.Image(), absTaskDir, task.Auth())
 	if err != nil {
-		return "", err
+		return cID, err
 	}
 
 	err = drv.docker.StartContainer(cID, nil)
