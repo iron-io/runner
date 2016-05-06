@@ -44,7 +44,7 @@ func newGofer(env *common.Environment, conf *Config, tasker Tasker, clock common
 	var err error
 	g := &gofer{
 		conf:        conf,
-		tasker:      tasker,
+		tasker:      RetryTasker(tasker),
 		clock:       clock,
 		driver:      driver,
 		hostname:    hostname,
@@ -284,20 +284,4 @@ func (g *gofer) emitCancellationSignal(ctx context.Context, job drivers.Containe
 			}
 		}
 	}
-}
-
-// call f up to n times until f returns true.
-// backoff will be called after each failure.
-func retry(n int, backoff func(), f func() bool) {
-	for i := 0; i < n; i++ {
-		ok := f()
-		if ok {
-			break
-		}
-		backoff()
-	}
-}
-
-func hasErroredOrTimedOut(s drivers.RunResult) bool {
-	return s.Error() != nil || s.Status() == drivers.StatusTimeout
 }
