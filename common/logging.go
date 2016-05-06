@@ -7,7 +7,7 @@ import (
 
 // SetLogLevel will read in a LOG_LEVEL env var and set the level accordingly.
 func SetLogLevel() {
-	ll := viper.GetString("log.level")
+	ll := viper.GetString("log_level")
 	if ll == "" {
 		ll = "info"
 	}

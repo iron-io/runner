@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/context"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/titan/runner/drivers"
@@ -57,7 +59,7 @@ func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
 // todo: pass in context
-func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) (drivers.RunResult, error) {
+func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
 	// Can't remove taskDir at the end of this, log file in there, caller should deal with it.
 	taskDirName := drv.newTaskDirName(task)
 
@@ -76,9 +78,7 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 
 	sentence := make(chan string, 1)
 
-	done := make(chan struct{})
-	defer close(done)
-	go drv.nanny(container, task, sentence, done, isCancelled)
+	go drv.nanny(ctx, container, task, sentence)
 
 	log := task.Logger()
 	if log == nil {
@@ -102,8 +102,6 @@ func (drv *DockerDriver) Run(task drivers.ContainerTask, isCancelled chan bool) 
 	// It's possible the execution could be finished here, then what? http://docs.docker.com.s3-website-us-east-1.amazonaws.com/engine/reference/api/docker_remote_api_v1.20/#wait-a-container
 	exitCode, err := drv.docker.WaitContainer(container)
 	time.Sleep(10 * time.Millisecond)
-
-	done <- struct{}{}
 	if err != nil {
 		return nil, err
 	}
@@ -241,33 +239,18 @@ func (drv *DockerDriver) removeContainer(container string) {
 }
 
 // watch for cancel or timeout and kill process.
-func (drv *DockerDriver) nanny(container string, task drivers.ContainerTask, sentence chan<- string, done chan struct{}, isCancelledSignal chan bool) {
-	t := time.Duration(drv.conf.DefaultTimeout) * time.Second
-	if task.Timeout() != 0 {
-		t = time.Duration(task.Timeout()) * time.Second
-	}
-	// Just in case we make a calculation mistake.
-	// TODO: trap this condition
-	// if t > 24*time.Hour {
-	// 	ctx.Warn("task has really long timeout of greater than a day")
-	// }
-	// Log task timeout values so we can get a good idea of what people generally set it to.
-	timeout := time.After(t)
-
+func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask, sentence chan<- string) {
 	select {
-	case <-done:
-		return
-	case <-timeout:
-		sentence <- drivers.StatusTimeout
-		drv.cancel(container)
-	case isCancelled := <-isCancelledSignal:
-		if isCancelled {
+	case <-ctx.Done():
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			sentence <- drivers.StatusTimeout
+			drv.cancel(container)
+		case context.Canceled:
 			sentence <- drivers.StatusKilled
 			drv.cancel(container)
 		}
 	}
-
-	<-done
 }
 
 func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, error) {

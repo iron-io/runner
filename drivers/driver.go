@@ -5,11 +5,13 @@ package drivers
 import (
 	"errors"
 	"io"
+
+	"golang.org/x/net/context"
 )
 
 type Driver interface {
 	// Run executes the task. If task runs, drivers.RunResult will be returned. If something fails outside the task (eg: Docker), it will return error.
-	Run(task ContainerTask, isCancelled chan bool) (RunResult, error)
+	Run(ctx context.Context, task ContainerTask) (RunResult, error)
 }
 
 // RunResult will provide methods to access the job completion status, logs, etc.
@@ -18,10 +20,10 @@ type RunResult interface {
 	// be considered invalid after Close() is called.
 	io.Closer
 
-	// Err() is an actionable/checkable error from the container.
+	// Error is an actionable/checkable error from the container.
 	Error() error
 
-	// Status() should return the current status of the task.
+	// Status should return the current status of the task.
 	// It must never return Enqueued.
 	Status() string
 }
