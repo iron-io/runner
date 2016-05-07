@@ -137,7 +137,11 @@ Out:
 			r.Infoln("got stopChan")
 			cancel()
 			r.waitForGofersToFinish()
-			// TODO: Restart docker, check memory issues, check disk space issues, etc. Also do those checks in a timer so it doesn't get to this point.
+			// TODO: =================================================
+			// As a first step, let's do a big log dump here with docker stats, docker status, disk space, memory, cpu and anything else, then maybe
+			// we'll get a better idea of what to look for and how we can auto fix it.
+			// IW-90
+			// =======================================================
 			r.Run(ctx)
 			return
 		}
