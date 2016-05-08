@@ -16,6 +16,7 @@ import (
 	"github.com/iron-io/titan/runner/drivers/docker"
 	"github.com/iron-io/titan/runner/drivers/mock"
 	"github.com/iron-io/titan/runner/tasker"
+	"github.com/pivotal-golang/bytefmt"
 	"github.com/spf13/viper"
 	"golang.org/x/net/context"
 )
@@ -37,6 +38,11 @@ func InitConfig() *agent.Config {
 	config.Driver = viper.GetString("driver")
 	config.Concurrency = viper.GetInt("concurrency")
 	config.ApiUrl = viper.GetString("api_url")
+	memPerJob, err := bytefmt.ToBytes(viper.GetString("memory_per_job"))
+	if err != nil {
+		log.WithError(err).Fatalln("Invalid MEMORY_PER_JOB variable:", viper.GetString("memory_per_job"))
+	}
+	config.MemoryPerJob = memPerJob
 	return config
 }
 
@@ -47,8 +53,9 @@ func main() {
 	viper.SetEnvKeyReplacer(replacer)
 	viper.AutomaticEnv()
 	viper.SetDefault("driver", "docker")
-	viper.SetDefault("concurrency", 5)
 	viper.SetDefault("api_url", "http://localhost:8080")
+	viper.SetDefault("memory_per_job", "256M")
+	// viper.SetDefault("concurrency", 5) // auto defined based on memory
 
 	err := viper.ReadInConfig()
 	if err != nil {
@@ -104,7 +111,6 @@ func main() {
 	au := agent.ConfigAuth{config.Registries}
 
 	tasker := tasker.New(config.ApiUrl, l, &au)
-	l.Infoln("Using", config.Driver, "container driver")
 	driver, err := selectDriver(l, config, hostname)
 	if err != nil {
 		l.WithError(err).Fatalln("error selecting container driver")

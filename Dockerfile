@@ -5,12 +5,19 @@ RUN apk update && apk upgrade \
     && apk add docker@community \
     && rm -rf /var/cache/apk/*
 
+# RUN apk add openrc
 # puts file in /etc/runlevels/...
-# THIS DOESN'T WORK ANYMORE? rc-update not found. Maybe removed from image?
+# THIS DOESN'T WORK ANYMORE? 
 # RUN rc-update add docker default
 # CMD ["/sbin/rc", "default"]
 
 WORKDIR /app
 ADD runner /app
 
-ENTRYPOINT ["./runner"]
+COPY entrypoint.sh /usr/local/bin/
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["./runner"]
+
+# If we don't want dind, we could have a separate img that doesn't start docker, in that case, remove the entrypoint things above and just use:
+# ENTRYPOINT ["./runner"]
