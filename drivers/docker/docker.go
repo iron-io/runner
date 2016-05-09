@@ -34,7 +34,14 @@ type DockerDriver struct {
 	// runtimeDir string
 }
 
-func NewDocker(conf *common.Config, hostname string) (*DockerDriver, error) {
+func NewDocker(conf *common.Config) (*DockerDriver, error) {
+
+	// Why do we need hostname here again?  @nikhil
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.WithError(err).Fatal("couldn't resolve hostname")
+	}
+
 	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
