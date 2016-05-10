@@ -6,7 +6,6 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,20 +17,11 @@ import (
 	"github.com/iron-io/titan/runner/drivers/common"
 )
 
-const (
-	// configFile  = ".task_config"
-	logFile = "job.log"
-	// payloadFile = ".task_payload"
-	// runtimeDir  = "/mnt"
-	// taskDir     = "/task"
-)
-
 type DockerDriver struct {
 	conf     *common.Config
 	docker   *docker.Client
 	hostname string
 	rand     *rand.Rand
-	// runtimeDir string
 }
 
 func NewDocker(conf *common.Config) (*DockerDriver, error) {
@@ -48,14 +38,6 @@ func NewDocker(conf *common.Config) (*DockerDriver, error) {
 		return nil, err
 	}
 
-	// create local directory to store log files
-	// use MkdirAll() to avoid failure if dir already exists.
-	err = os.MkdirAll(conf.JobsDir, 0777)
-	if err != nil {
-		log.Errorln("could not create", conf.JobsDir, "directory!")
-		return nil, err
-	}
-
 	return &DockerDriver{
 		conf:     conf,
 		docker:   docker,
@@ -67,14 +49,7 @@ func NewDocker(conf *common.Config) (*DockerDriver, error) {
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
 // todo: pass in context
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
-	// Can't remove taskDir at the end of this, log file in there, caller should deal with it.
-	taskDirName := drv.newTaskDirName(task)
-
-	if err := os.Mkdir(taskDirName, 0777); err != nil {
-		return nil, err
-	}
-
-	container, err := drv.startTask(task, taskDirName)
+	container, err := drv.startTask(task)
 	if container != "" {
 		// It is possible that startTask created a container but could not start it. So always try to remove a valid container.
 		defer drv.removeContainer(container)
@@ -116,15 +91,8 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	// the err returned above is an error from running user code, so we don't return it from this method.
 	return &runResult{
 		StatusValue: status,
-		Dir:         taskDirName,
 		Err:         err,
 	}, nil
-}
-
-func (drv *DockerDriver) newTaskDirName(task drivers.ContainerTask) string {
-	// Add a random suffix so that in the rare/erroneous case that we get a repeat job ID, we don't behave badly.
-	gen := drv.rand.Uint32()
-	return filepath.Join(drv.conf.JobsDir, fmt.Sprintf("%s-%d", task.Id(), gen))
 }
 
 func (drv *DockerDriver) error(err error) *runResult {
@@ -134,31 +102,8 @@ func (drv *DockerDriver) error(err error) *runResult {
 	}
 }
 
-func (drv *DockerDriver) startTask(task drivers.ContainerTask, hostTaskDir string) (dockerId string, err error) {
-	if task.Image() == "" {
-		// TODO support for old
-		return "", errors.New("no image specified, this runner cannot run this")
-	}
-
-	var cmd []string
-	if task.Command() != "" {
-		// TODO: maybe check for spaces or shell meta characters?
-		// There's a possibility that the container doesn't have sh.
-		cmd = []string{"sh", "-c", task.Command()}
-	}
-
-	envvars := make([]string, 0, len(task.EnvVars())+4)
-	for name, val := range task.EnvVars() {
-		envvars = append(envvars, name+"="+val)
-	}
-	envvars = append(envvars, "JOB_ID="+task.Id())
-	envvars = append(envvars, "PAYLOAD="+task.Payload())
-	absTaskDir, err := filepath.Abs(hostTaskDir)
-	if err != nil {
-		return "", err
-	}
-
-	cID, err := drv.createContainer(envvars, cmd, task.Image(), absTaskDir, task.Auth())
+func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
+	cID, err := drv.createContainer(task)
 	if err != nil {
 		return "", err
 	}
@@ -177,11 +122,30 @@ func writeFile(name, body string) error {
 	return err
 }
 
-func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, absTaskDir string, auth string) (string, error) {
+func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, error) {
 	l := log.WithFields(log.Fields{
-		"image": image,
+		"image": task.Image(),
 		// todo: add context fields here, job id, etc.
 	})
+
+	if task.Image() == "" {
+		return "", errors.New("no image specified, this runner cannot run this")
+	}
+
+	var cmd []string
+	if task.Command() != "" {
+		// TODO: maybe check for spaces or shell meta characters?
+		// There's a possibility that the container doesn't have sh.
+		cmd = []string{"sh", "-c", task.Command()}
+	}
+
+	envvars := make([]string, 0, len(task.EnvVars())+4)
+	for name, val := range task.EnvVars() {
+		envvars = append(envvars, name+"="+val)
+	}
+	envvars = append(envvars, "JOB_ID="+task.Id())
+	envvars = append(envvars, "PAYLOAD="+task.Payload())
+
 	container := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Env:       envvars,
@@ -189,14 +153,27 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 			Memory:    drv.conf.Memory,
 			CPUShares: drv.conf.CPUShares,
 			Hostname:  drv.hostname,
-			Image:     image,
-			// Volumes: map[string]struct{}{
-			// drv.runtimeDir: {},
-			// },
+			Image:     task.Image(),
+			Volumes:   map[string]struct{}{},
 		},
-		// HostConfig: &docker.HostConfig{
-		// Binds: []string{absTaskDir + ":" + drv.runtimeDir},
-		// },
+		HostConfig: &docker.HostConfig{},
+	}
+
+	volumes := task.Volumes()
+	container.HostConfig.Binds = make([]string, len(volumes))
+	for i, mapping := range volumes {
+		if len(mapping) != 2 {
+			return "", fmt.Errorf("Invalid volume tuple %d. Tuple must be 2-element", i)
+		}
+
+		hostDir := mapping[0]
+		containerDir := mapping[1]
+		container.Config.Volumes[containerDir] = struct{}{}
+		container.HostConfig.Binds[i] = fmt.Sprintf("%s:%s", hostDir, containerDir)
+
+		if i == 0 {
+			container.Config.WorkingDir = containerDir
+		}
 	}
 
 	c, err := drv.docker.CreateContainer(container)
@@ -207,7 +184,7 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 		l.WithError(err).Infoln("could not create container, trying to pull...")
 
 		regHost := "docker.io"
-		repo, tag := docker.ParseRepositoryTag(image)
+		repo, tag := docker.ParseRepositoryTag(task.Image())
 		split := strings.Split(repo, "/")
 		if len(split) >= 3 {
 			// then we have an explicit registry
@@ -215,6 +192,7 @@ func (drv *DockerDriver) createContainer(envvars, cmd []string, image string, ab
 		}
 		// todo: we should probably move all this auth stuff up a level, don't need to do it for every job
 		authConfig := docker.AuthConfiguration{}
+		auth := task.Auth()
 		if auth != "" {
 			l.Debugln("Using auth", auth)
 			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))

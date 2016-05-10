@@ -40,6 +40,16 @@ type ContainerTask interface {
 	// Drivers should write output log to this writer. Must be non-nil. Use
 	// io.Discard if log is irrelevant.
 	Logger() io.Writer
+	// Volumes may return an array of 2-element tuples, where the first element
+	// is the path on the host, and the second element is the path in the
+	// container. If at least one tuple is returned, the first tuple is set to
+	// the working directory for the execution.
+	//
+	// Example:
+	//   []string {
+	//     []string{ "/my/task/dir", "/mnt" }
+	//   }
+	Volumes() [][2]string
 }
 
 // Set of acceptable errors coming from container engines to TaskRunner
