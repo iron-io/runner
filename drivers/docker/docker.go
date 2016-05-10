@@ -143,8 +143,6 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	for name, val := range task.EnvVars() {
 		envvars = append(envvars, name+"="+val)
 	}
-	envvars = append(envvars, "JOB_ID="+task.Id())
-	envvars = append(envvars, "PAYLOAD="+task.Payload())
 
 	container := docker.CreateContainerOptions{
 		Config: &docker.Config{

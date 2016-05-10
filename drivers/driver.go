@@ -34,7 +34,6 @@ type ContainerTask interface {
 	EnvVars() map[string]string
 	Id() string
 	Image() string
-	Payload() string
 	Timeout() uint
 	Auth() string
 	// Drivers should write output log to this writer. Must be non-nil. Use
