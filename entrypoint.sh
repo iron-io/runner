@@ -16,6 +16,4 @@ docker daemon \
 # 	set -- sh "$(which dind)" "$@"
 # fi
 
-echo "YO"
-
 exec "$@"

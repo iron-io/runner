@@ -26,7 +26,6 @@ type DockerDriver struct {
 
 func NewDocker(conf *common.Config) (*DockerDriver, error) {
 
-	// Why do we need hostname here again?  @nikhil
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.WithError(err).Fatal("couldn't resolve hostname")
