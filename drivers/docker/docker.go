@@ -3,6 +3,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
-	"github.com/iron-io/titan/common"
+	titancommon "github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/runner/drivers"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 )
@@ -20,10 +21,10 @@ type DockerDriver struct {
 	conf     *drivercommon.Config
 	docker   *docker.Client
 	hostname string
-	*common.Environment
+	*titancommon.Environment
 }
 
-func NewDocker(env *common.Environment, conf *drivercommon.Config) *DockerDriver {
+func NewDocker(env *titancommon.Environment, conf *drivercommon.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.WithError(err).Fatal("couldn't resolve hostname")
@@ -55,19 +56,26 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	go drv.nanny(ctx, container, task, sentence)
 
-	log := task.Logger()
-	if log == nil {
+	outTasker, errTasker := task.Logger()
+	if outTasker == nil || errTasker == nil {
 		return nil, fmt.Errorf("Received nil logger")
 	}
 
-	w := &limitedWriter{W: log, N: 8 * 1024 * 1024 * 1024} // TODO get max log size from somewhere
+	outLastLines := titancommon.NewLastWritesWriter(5)
+	errLastLines := titancommon.NewLastWritesWriter(5)
+
+	outLineWriter := titancommon.NewLineWriter(outLastLines)
+	errLineWriter := titancommon.NewLineWriter(errLastLines)
+
+	mwOut := io.MultiWriter(outTasker, outLineWriter)
+	mwErr := io.MultiWriter(errTasker, errLineWriter)
 
 	// Docker sometimes fails to close the attach response connection even after
 	// the container stops, leaving the runner stuck. We use a non-blocking
 	// attach so we can sleep a bit after WaitContainer returns and then forcibly
 	// close the connection.
 	closer, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
-		Container: container, OutputStream: w, ErrorStream: w,
+		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
 	defer closer.Close()
 	if err != nil {
@@ -82,6 +90,16 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}
 
 	status, err := drv.status(exitCode, sentence)
+
+	outLineWriter.Flush()
+	errLineWriter.Flush()
+
+	outLines := outLastLines.Fetch()
+	errLines := errLastLines.Fetch()
+
+	// TODO: Look at last lines from out/err to determine success/failure
+	_, _ = outLines, errLines
+
 	// the err returned above is an error from running user code, so we don't return it from this method.
 	return &runResult{
 		StatusValue: status,
