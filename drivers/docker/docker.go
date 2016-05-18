@@ -147,7 +147,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		Config: &docker.Config{
 			Env:       envvars,
 			Cmd:       cmd,
-			Memory:    drv.conf.Memory,
+			Memory:    int64(drv.conf.Memory),
 			CPUShares: drv.conf.CPUShares,
 			Hostname:  drv.hostname,
 			Image:     task.Image(),
