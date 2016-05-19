@@ -71,14 +71,14 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
 	defer closer.Close()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("attach to container: %v", err)
 	}
 
 	// It's possible the execution could be finished here, then what? http://docs.docker.com.s3-website-us-east-1.amazonaws.com/engine/reference/api/docker_remote_api_v1.20/#wait-a-container
 	exitCode, err := drv.docker.WaitContainer(container)
 	time.Sleep(10 * time.Millisecond)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wait container: %v", err)
 	}
 
 	status, err := drv.status(exitCode, sentence)
@@ -92,7 +92,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
 	cID, err := drv.createContainer(task)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("docker driver createContainer: %v", err)
 	}
 
 	err = drv.docker.StartContainer(cID, nil)
@@ -102,8 +102,9 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 			defer drv.removeContainer(cID)
 		}
 		drv.Inc("docker", "container_start_error", 1, 1.0)
+		return "", fmt.Errorf("docker.StartContainer: %v", err)
 	}
-	return cID, err
+	return cID, nil
 }
 
 func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, error) {
@@ -167,7 +168,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 			drv.Inc("docker", "container_create_error", 1, 1.0)
 			return "", fmt.Errorf("docker.CreateContainer: %v", err)
 		}
-		l.WithError(err).Infoln("could not create container, trying to pull...")
+		l.WithError(err).Infoln("could not create container due to missing image, trying to pull...")
 
 		regHost := "docker.io"
 		repo, tag := docker.ParseRepositoryTag(task.Image())
@@ -184,14 +185,14 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))
 			ac, err := docker.NewAuthConfigurations(read)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("failed to create auth configurations: %v", err)
 			}
 			authConfig = ac.Configs[regHost]
 		}
 
 		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("docker.PullImage: %v", err)
 		}
 
 		// should have it now
