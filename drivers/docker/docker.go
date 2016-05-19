@@ -180,6 +180,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	c, err := drv.docker.CreateContainer(container)
 	if err != nil {
 		if err != docker.ErrNoSuchImage {
+			logDockerContainerConfig(l, container)
 			return "", err
 		}
 		l.WithError(err).Infoln("could not create container, trying to pull...")
@@ -212,6 +213,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		// should have it now
 		c, err = drv.docker.CreateContainer(container)
 		if err != nil {
+			logDockerContainerConfig(l, container)
 			return "", err
 		}
 	}
@@ -270,3 +272,16 @@ func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, e
 
 // TODO we _sure_ it's dead?
 func (drv *DockerDriver) cancel(container string) { drv.docker.StopContainer(container, 5) }
+
+func logDockerContainerConfig(logger *log.Entry, container docker.CreateContainerOptions) {
+	// envvars are left out because they could have private information.
+	logger.WithFields(log.Fields{
+		"command":    container.Config.Cmd,
+		"memory":     container.Config.Memory,
+		"cpu_shares": container.Config.CPUShares,
+		"hostname":   container.Config.Hostname,
+		"image":      container.Config.Image,
+		"volumes":    container.Config.Volumes,
+		"binds":      container.HostConfig.Binds,
+	}).Error("Could not create container")
+}
