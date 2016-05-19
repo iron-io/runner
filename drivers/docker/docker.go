@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"strings"
 	"time"
@@ -21,7 +20,6 @@ type DockerDriver struct {
 	conf     *common.Config
 	docker   *docker.Client
 	hostname string
-	rand     *rand.Rand
 }
 
 func NewDocker(conf *common.Config) (*DockerDriver, error) {
@@ -40,7 +38,6 @@ func NewDocker(conf *common.Config) (*DockerDriver, error) {
 		conf:     conf,
 		docker:   docker,
 		hostname: hostname,
-		rand:     rand.New(rand.NewSource(time.Now().Unix())),
 	}, nil
 }
 
