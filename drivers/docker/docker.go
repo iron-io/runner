@@ -48,10 +48,6 @@ func NewDocker(conf *common.Config) (*DockerDriver, error) {
 // todo: pass in context
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
 	container, err := drv.startTask(task)
-	if container != "" {
-		// It is possible that startTask created a container but could not start it. So always try to remove a valid container.
-		defer drv.removeContainer(container)
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +104,12 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	}
 
 	err = drv.docker.StartContainer(cID, nil)
+	if err != nil {
+		if cID != "" {
+			// Remove the created container since we couldn't start it.
+			defer drv.removeContainer(cID)
+		}
+	}
 	return cID, err
 }
 
