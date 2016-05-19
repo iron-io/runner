@@ -3,7 +3,6 @@ package docker
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -24,7 +23,7 @@ type DockerDriver struct {
 	*common.Environment
 }
 
-func NewDocker(env *common.Environment, conf *drivercommon.Config) (*DockerDriver, error) {
+func NewDocker(env *common.Environment, conf *drivercommon.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.WithError(err).Fatal("couldn't resolve hostname")
@@ -33,7 +32,7 @@ func NewDocker(env *common.Environment, conf *drivercommon.Config) (*DockerDrive
 	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
-		return nil, err
+		log.WithError(err).Fatal("couldn't create docker client")
 	}
 
 	return &DockerDriver{
@@ -41,7 +40,7 @@ func NewDocker(env *common.Environment, conf *drivercommon.Config) (*DockerDrive
 		docker:      docker,
 		hostname:    hostname,
 		Environment: env,
-	}, nil
+	}
 }
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
@@ -90,13 +89,6 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}, nil
 }
 
-func (drv *DockerDriver) error(err error) *runResult {
-	return &runResult{
-		Err:         err,
-		StatusValue: drivers.StatusError,
-	}
-}
-
 func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
 	cID, err := drv.createContainer(task)
 	if err != nil {
@@ -112,16 +104,6 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		drv.Inc("docker", "container_start_error", 1, 1.0)
 	}
 	return cID, err
-}
-
-func writeFile(name, body string) error {
-	f, err := os.Create(name)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, strings.NewReader(body))
-	return err
 }
 
 func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, error) {

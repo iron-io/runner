@@ -43,10 +43,7 @@ func main() {
 func selectDriver(env *common.Environment, conf *agent.Config) (drivers.Driver, error) {
 	switch conf.Driver {
 	case "docker":
-		docker, err := docker.NewDocker(env, conf.DriverConfig)
-		if err != nil {
-			log.WithError(err).Fatalln("couldn't start container driver")
-		}
+		docker := docker.NewDocker(env, conf.DriverConfig)
 		return docker, nil
 	case "mock":
 		return mock.New(), nil
