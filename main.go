@@ -24,25 +24,26 @@ func main() {
 
 	l := log.WithFields(log.Fields{})
 
-	// Create
-	tasker := tasker.New(configloader.ApiURL(), l, &au)
-	driver, err := selectDriver(runnerConfig)
-	if err != nil {
-		l.WithError(err).Fatalln("error selecting container driver")
-	}
-
 	// TODO: can we just ditch environment here since we have a global Runner object now?
 	env := common.NewEnvironment(func(e *common.Environment) {
 		// Put stats initialization based off config over here.
 	})
+
+	// Create
+	tasker := tasker.New(configloader.ApiURL(), l, &au)
+	driver, err := selectDriver(env, runnerConfig)
+	if err != nil {
+		l.WithError(err).Fatalln("error selecting container driver")
+	}
+
 	runner := agent.NewRunner(env, runnerConfig, tasker, driver)
 	runner.Run(ctx)
 }
 
-func selectDriver(conf *agent.Config) (drivers.Driver, error) {
+func selectDriver(env *common.Environment, conf *agent.Config) (drivers.Driver, error) {
 	switch conf.Driver {
 	case "docker":
-		docker, err := docker.NewDocker(conf.DriverConfig)
+		docker, err := docker.NewDocker(env, conf.DriverConfig)
 		if err != nil {
 			log.WithError(err).Fatalln("couldn't start container driver")
 		}

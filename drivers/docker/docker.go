@@ -12,17 +12,19 @@ import (
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
+	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/runner/drivers"
-	"github.com/iron-io/titan/runner/drivers/common"
+	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 )
 
 type DockerDriver struct {
-	conf     *common.Config
+	conf     *drivercommon.Config
 	docker   *docker.Client
 	hostname string
+	*common.Environment
 }
 
-func NewDocker(conf *common.Config) (*DockerDriver, error) {
+func NewDocker(env *common.Environment, conf *drivercommon.Config) (*DockerDriver, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.WithError(err).Fatal("couldn't resolve hostname")
@@ -35,9 +37,10 @@ func NewDocker(conf *common.Config) (*DockerDriver, error) {
 	}
 
 	return &DockerDriver{
-		conf:     conf,
-		docker:   docker,
-		hostname: hostname,
+		conf:        conf,
+		docker:      docker,
+		hostname:    hostname,
+		Environment: env,
 	}, nil
 }
 
@@ -106,6 +109,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 			// Remove the created container since we couldn't start it.
 			defer drv.removeContainer(cID)
 		}
+		drv.Inc("docker", "container_start_error", 1, 1.0)
 	}
 	return cID, err
 }
@@ -178,7 +182,8 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	if err != nil {
 		if err != docker.ErrNoSuchImage {
 			logDockerContainerConfig(l, container)
-			return "", err
+			drv.Inc("docker", "container_create_error", 1, 1.0)
+			return "", fmt.Errorf("docker.CreateContainer: %v", err)
 		}
 		l.WithError(err).Infoln("could not create container, trying to pull...")
 
@@ -211,7 +216,8 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		c, err = drv.docker.CreateContainer(container)
 		if err != nil {
 			logDockerContainerConfig(l, container)
-			return "", err
+			drv.Inc("docker", "container_create_error", 1, 1.0)
+			return "", fmt.Errorf("docker.CreateContainer try 2: %v", err)
 		}
 	}
 	return c.ID, nil
