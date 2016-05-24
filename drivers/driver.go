@@ -49,10 +49,10 @@ type ContainerTask interface {
 	//     []string{ "/my/task/dir", "/mnt" }
 	//   }
 	Volumes() [][2]string
-
 	// return working directory to use in container. empty string
 	// will not set this and default to container defaults.
 	WorkDir() string
+	Close()
 }
 
 // Set of acceptable errors coming from container engines to TaskRunner
