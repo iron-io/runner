@@ -156,22 +156,23 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		HostConfig: &docker.HostConfig{},
 	}
 
-	volumes := task.Volumes()
-	container.HostConfig.Binds = make([]string, len(volumes))
-	for i, mapping := range volumes {
-		if len(mapping) != 2 {
-			return "", fmt.Errorf("Invalid volume tuple %d. Tuple must be 2-element", i)
-		}
+	// TODO: Fix volumes, breaks non-zip images
+	// volumes := task.Volumes()
+	// container.HostConfig.Binds = make([]string, len(volumes))
+	// for i, mapping := range volumes {
+	// 	if len(mapping) != 2 {
+	// 		return "", fmt.Errorf("Invalid volume tuple %d. Tuple must be 2-element", i)
+	// 	}
 
-		hostDir := mapping[0]
-		containerDir := mapping[1]
-		container.Config.Volumes[containerDir] = struct{}{}
-		container.HostConfig.Binds[i] = fmt.Sprintf("%s:%s", hostDir, containerDir)
+	// 	hostDir := mapping[0]
+	// 	containerDir := mapping[1]
+	// 	container.Config.Volumes[containerDir] = struct{}{}
+	// 	container.HostConfig.Binds[i] = fmt.Sprintf("%s:%s", hostDir, containerDir)
 
-		if i == 0 {
-			container.Config.WorkingDir = containerDir
-		}
-	}
+	// 	if i == 0 {
+	// 		container.Config.WorkingDir = containerDir
+	// 	}
+	// }
 
 	c, err := drv.docker.CreateContainer(container)
 	if err != nil {
