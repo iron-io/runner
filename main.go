@@ -8,6 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/runner/agent"
+	"github.com/iron-io/titan/runner/configloader"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/docker"
 	"github.com/iron-io/titan/runner/drivers/mock"
@@ -18,14 +19,14 @@ func main() {
 
 	ctx := agent.BaseContext(context.Background())
 
-	config := agent.InitConfig()
-	au := agent.ConfigAuth{config.Registries}
+	runnerConfig := configloader.RunnerConfiguration()
+	au := agent.ConfigAuth{runnerConfig.Registries}
 
 	l := log.WithFields(log.Fields{})
 
 	// Create
-	tasker := tasker.New(config.ApiUrl, l, &au)
-	driver, err := selectDriver(config)
+	tasker := tasker.New(configloader.ApiURL(), l, &au)
+	driver, err := selectDriver(runnerConfig)
 	if err != nil {
 		l.WithError(err).Fatalln("error selecting container driver")
 	}
@@ -34,7 +35,7 @@ func main() {
 	env := common.NewEnvironment(func(e *common.Environment) {
 		// Put stats initialization based off config over here.
 	})
-	runner := agent.NewRunner(env, config, tasker, driver)
+	runner := agent.NewRunner(env, runnerConfig, tasker, driver)
 	runner.Run(ctx)
 }
 

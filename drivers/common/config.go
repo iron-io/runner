@@ -6,7 +6,7 @@ const (
 
 type Config struct {
 	Docker         string `json:"docker"`
-	Memory         int64  `json:"memory"`
+	Memory         uint64 `json:"memory"`
 	CPUShares      int64  `json:"cpu_shares"`
 	DefaultTimeout uint   `json:"timeout"`
 }

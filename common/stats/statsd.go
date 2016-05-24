@@ -8,7 +8,7 @@ import (
 )
 
 type StatsdConfig struct {
-	StatsdUdpTarget string `json:"target"`
+	StatsdUdpTarget string `json:"target" mapstructure:"target"`
 	Interval        int64  `json:"interval"`
 	Prefix          string `json:"prefix"`
 }
