@@ -25,7 +25,6 @@ type DockerDriver struct {
 }
 
 func NewDocker(conf *common.Config) (*DockerDriver, error) {
-
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.WithError(err).Fatal("couldn't resolve hostname")
@@ -86,6 +85,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, err
 	}
+
 	status, err := drv.status(exitCode, sentence)
 	// the err returned above is an error from running user code, so we don't return it from this method.
 	return &runResult{
@@ -156,23 +156,22 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		HostConfig: &docker.HostConfig{},
 	}
 
-	// TODO: Fix volumes, breaks non-zip images
-	// volumes := task.Volumes()
-	// container.HostConfig.Binds = make([]string, len(volumes))
-	// for i, mapping := range volumes {
-	// 	if len(mapping) != 2 {
-	// 		return "", fmt.Errorf("Invalid volume tuple %d. Tuple must be 2-element", i)
-	// 	}
+	volumes := task.Volumes()
+	container.HostConfig.Binds = make([]string, len(volumes))
+	for i, mapping := range volumes {
+		if len(mapping) != 2 {
+			return "", fmt.Errorf("Invalid volume tuple %d. Tuple must be 2-element", i)
+		}
 
-	// 	hostDir := mapping[0]
-	// 	containerDir := mapping[1]
-	// 	container.Config.Volumes[containerDir] = struct{}{}
-	// 	container.HostConfig.Binds[i] = fmt.Sprintf("%s:%s", hostDir, containerDir)
+		hostDir := mapping[0]
+		containerDir := mapping[1]
+		container.Config.Volumes[containerDir] = struct{}{}
+		container.HostConfig.Binds[i] = fmt.Sprintf("%s:%s", hostDir, containerDir)
 
-	// 	if i == 0 {
-	// 		container.Config.WorkingDir = containerDir
-	// 	}
-	// }
+		if i == 0 {
+			container.Config.WorkingDir = containerDir
+		}
+	}
 
 	c, err := drv.docker.CreateContainer(container)
 	if err != nil {
@@ -259,7 +258,7 @@ func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, e
 			err = drivers.ErrOutOfMemory
 		default:
 			status = drivers.StatusError
-			err = drivers.ErrUnknown
+			err = fmt.Errorf("exit code %d", exitCode)
 		}
 	}
 	return status, err
