@@ -160,7 +160,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	container.HostConfig.Binds = make([]string, len(volumes))
 	for i, mapping := range volumes {
 		if len(mapping) != 2 {
-			return "", fmt.Errorf("Invalid volume tuple %d. Tuple must be 2-element", i)
+			return "", fmt.Errorf("Invalid volume tuple: %v. Tuple must be 2-element", mapping)
 		}
 
 		hostDir := mapping[0]
