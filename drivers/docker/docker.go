@@ -157,8 +157,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	}
 
 	volumes := task.Volumes()
-	container.HostConfig.Binds = make([]string, len(volumes))
-	for i, mapping := range volumes {
+	for _, mapping := range volumes {
 		if len(mapping) != 2 {
 			return "", fmt.Errorf("Invalid volume tuple: %v. Tuple must be 2-element", mapping)
 		}
@@ -166,11 +165,14 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		hostDir := mapping[0]
 		containerDir := mapping[1]
 		container.Config.Volumes[containerDir] = struct{}{}
-		container.HostConfig.Binds[i] = fmt.Sprintf("%s:%s", hostDir, containerDir)
+		mapn := fmt.Sprintf("%s:%s", hostDir, containerDir)
+		container.HostConfig.Binds = append(container.HostConfig.Binds, mapn)
+		l.Debugln("setting volumes ", mapn)
+	}
 
-		if i == 0 {
-			container.Config.WorkingDir = containerDir
-		}
+	if wd := task.WorkDir(); wd != "" {
+		l.Debugln("setting work dir", wd)
+		container.Config.WorkingDir = wd
 	}
 
 	c, err := drv.docker.CreateContainer(container)
