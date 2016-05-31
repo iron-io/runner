@@ -49,7 +49,7 @@ func TestLineWriter(t *testing.T) {
 }
 
 func testLastWritesWriter(writes, size int, t *testing.T) {
-	lnw := NewLastWritesWriter(size)
+	lnw, _ := NewLastWritesWriter(size)
 	for x := 0; x < writes; x++ {
 		lnw.Write([]byte(fmt.Sprintf("%v line", x)))
 	}
@@ -68,7 +68,7 @@ func testLastWritesWriter(writes, size int, t *testing.T) {
 }
 
 func TestLastWritesWriter(t *testing.T) {
-	testLastWritesWriter(0, 0, t)
+	testLastWritesWriter(0, 1, t)
 	testLastWritesWriter(1, 4, t)
 	testLastWritesWriter(4, 4, t)
 	testLastWritesWriter(10, 4, t)

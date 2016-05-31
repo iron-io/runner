@@ -56,16 +56,14 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	go drv.nanny(ctx, container, task, sentence)
 
 	outTasker, errTasker := task.Logger()
-	if outTasker == nil || errTasker == nil {
-		return nil, fmt.Errorf("Received nil logger")
-	}
 
 	// Currently, hybrid worker is gathering the last 5 lines of stdout/stderr and searching
 	// for a few key substrings regarding max memory usage. We should instead capture the last N bytes
 	// to check for these substrings as it's more controllable than capturing N lines.
 	// IW-125
-	// outLastLines := titancommon.NewLastWritesWriter(5)
-	// errLastLines := titancommon.NewLastWritesWriter(5)
+	// outLastLines, err := titancommon.NewLastWritesWriter(5)
+	// errLastLines, err := titancommon.NewLastWritesWriter(5)
+	// ...
 	// outLineWriter := titancommon.NewLineWriter(outLastLines)
 	// errLineWriter := titancommon.NewLineWriter(errLastLines)
 

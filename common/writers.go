@@ -7,7 +7,8 @@ import (
 )
 
 // lineWriter will break apart a stream of data into individual lines.
-// Downstream writer will be written to for each line.
+// Downstream writer will be called for each NewLineWriter. When Flush
+// is called, a newline will be appended if there isn't one at the end.
 // Not thread-safe
 type LineWriter struct {
 	b *bytes.Buffer
@@ -21,14 +22,13 @@ func NewLineWriter(w io.Writer) *LineWriter {
 	}
 }
 
-func (li *LineWriter) Write(p []byte) (n int, err error) {
-	n, err = li.b.Write(p)
+func (li *LineWriter) Write(p []byte) (int, error) {
+	n, err := li.b.Write(p)
 	if err != nil {
-		return 0, err
+		return n, err
 	}
 	if n != len(p) {
-		err = errors.New("short write")
-		return
+		return n, errors.New("short write")
 	}
 
 	for {
@@ -49,7 +49,7 @@ func (li *LineWriter) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
-func (li *LineWriter) Flush() (n int, err error) {
+func (li *LineWriter) Flush() (int, error) {
 	b := li.b.Bytes()
 	if len(b) == 0 {
 		return 0, nil
@@ -58,8 +58,7 @@ func (li *LineWriter) Flush() (n int, err error) {
 	if b[len(b)-1] != '\n' {
 		b = append(b, '\n')
 	}
-	n, err = li.w.Write(b)
-	return
+	return li.w.Write(b)
 }
 
 // lastWritesWriter stores the last N writes in buffers
@@ -69,11 +68,15 @@ type LastWritesWriter struct {
 	b    []*bytes.Buffer
 }
 
-func NewLastWritesWriter(n int) *LastWritesWriter {
+func NewLastWritesWriter(n int) (*LastWritesWriter, error) {
+	if n == 0 {
+		return nil, errors.New("LastWriteWriter's buffer must be 1 or larger")
+	}
+
 	return &LastWritesWriter{
 		tail: -1,
 		b:    make([]*bytes.Buffer, n),
-	}
+	}, nil
 }
 
 func (lnw *LastWritesWriter) Write(p []byte) (n int, err error) {
@@ -97,7 +100,6 @@ func (lnw *LastWritesWriter) Fetch() [][]byte {
 	var r [][]byte
 	for y := 0; y < len(lnw.b); y++ {
 		i := (lnw.tail + y + 1) % len(lnw.b)
-		// fmt.Println(i)
 		b := lnw.b[i]
 		if b != nil {
 			r = append(r, b.Bytes())
