@@ -95,7 +95,9 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		return "", fmt.Errorf("docker driver createContainer: %v", err)
 	}
 
+	startTimer := drv.NewTimer("docker", "start_container", 1.0)
 	err = drv.docker.StartContainer(cID, nil)
+	startTimer.Measure()
 	if err != nil {
 		if cID != "" {
 			// Remove the created container since we couldn't start it.
@@ -161,9 +163,11 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		container.Config.WorkingDir = wd
 	}
 
+	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	c, err := drv.docker.CreateContainer(container)
 	if err != nil {
 		if err != docker.ErrNoSuchImage {
+			createTimer.Measure()
 			logDockerContainerConfig(l, container)
 			drv.Inc("docker", "container_create_error", 1, 1.0)
 			return "", fmt.Errorf("docker.CreateContainer: %v", err)
@@ -190,13 +194,17 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 			authConfig = ac.Configs[regHost]
 		}
 
+		pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig)
+		pullTimer.Measure()
 		if err != nil {
 			return "", fmt.Errorf("docker.PullImage: %v", err)
 		}
 
 		// should have it now
+		createTimer := drv.NewTimer("docker", "create_container", 1.0)
 		c, err = drv.docker.CreateContainer(container)
+		createTimer.Measure()
 		if err != nil {
 			logDockerContainerConfig(l, container)
 			drv.Inc("docker", "container_create_error", 1, 1.0)
@@ -207,9 +215,11 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 }
 
 func (drv *DockerDriver) removeContainer(container string) {
+	removeTimer := drv.NewTimer("docker", "remove_container", 1.0)
 	// TODO: trap error
 	drv.docker.RemoveContainer(docker.RemoveContainerOptions{
 		ID: container, Force: true, RemoveVolumes: true})
+	removeTimer.Measure()
 }
 
 // watch for cancel or timeout and kill process.
@@ -257,7 +267,12 @@ func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, e
 }
 
 // TODO we _sure_ it's dead?
-func (drv *DockerDriver) cancel(container string) { drv.docker.StopContainer(container, 5) }
+func (drv *DockerDriver) cancel(container string) {
+	stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
+	drv.docker.StopContainer(container, 5)
+	// We will get a large skew due to the by default 5 second wait. Should we log times after subtracting this?
+	stopTimer.Measure()
+}
 
 func logDockerContainerConfig(logger *log.Entry, container docker.CreateContainerOptions) {
 	// envvars are left out because they could have private information.
