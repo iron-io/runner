@@ -7,7 +7,7 @@ import (
 )
 
 // lineWriter will break apart a stream of data into individual lines.
-// Downstream writer will be called for each NewLineWriter. When Flush
+// Downstream writer will be called for each complete new line. When Flush
 // is called, a newline will be appended if there isn't one at the end.
 // Not thread-safe
 type LineWriter struct {
