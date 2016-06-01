@@ -52,6 +52,8 @@ type ContainerTask interface {
 	// return working directory to use in container. empty string
 	// will not set this and default to container defaults.
 	WorkDir() string
+	// Close should be safe to call multiple times. Any errors occurred
+	// during close should be logged from within.
 	Close()
 }
 
