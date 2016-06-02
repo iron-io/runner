@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/common"
-	"github.com/iron-io/titan/log"
 	"github.com/iron-io/titan/runner/agent"
 	"github.com/iron-io/titan/runner/configloader"
 	"github.com/iron-io/titan/runner/drivers"
@@ -26,10 +26,10 @@ func main() {
 	})
 
 	// Create
-	tasker := tasker.New(configloader.ApiURL(), log.New(), &au)
+	tasker := tasker.New(configloader.ApiURL(), logrus.WithFields(logrus.Fields{}), &au)
 	driver, err := selectDriver(env, runnerConfig)
 	if err != nil {
-		log.Fatal("error selecting container driver", "err", err)
+		logrus.WithError(err).Fatal("error selecting container driver")
 	}
 
 	runner := agent.NewRunner(env, runnerConfig, tasker, driver)

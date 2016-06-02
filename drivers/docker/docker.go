@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	titancommon "github.com/iron-io/titan/common"
-	"github.com/iron-io/titan/log"
 	"github.com/iron-io/titan/runner/drivers"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"golang.org/x/net/context"
@@ -26,13 +26,13 @@ type DockerDriver struct {
 func NewDocker(env *titancommon.Environment, conf *drivercommon.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
-		log.Fatal("couldn't resolve hostname", "err", err)
+		logrus.WithError(err).Fatal("couldn't resolve hostname")
 	}
 
 	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
-		log.Fatal("couldn't create docker client", "err", err)
+		logrus.WithError(err).Fatal("couldn't create docker client")
 	}
 
 	return &DockerDriver{
@@ -126,7 +126,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 }
 
 func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, error) {
-	log := log.New("image", task.Image()) // todo: add context fields here, job id, etc.
+	log := logrus.WithFields(logrus.Fields{"image": task.Image()}) // todo: add context fields here, job id, etc.
 
 	if task.Image() == "" {
 		return "", errors.New("no image specified, this runner cannot run this")
@@ -169,11 +169,11 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		container.Config.Volumes[containerDir] = struct{}{}
 		mapn := fmt.Sprintf("%s:%s", hostDir, containerDir)
 		container.HostConfig.Binds = append(container.HostConfig.Binds, mapn)
-		log.Debug("setting volumes", "volumes", mapn)
+		log.WithFields(logrus.Fields{"volumes": mapn}).Debug("setting volumes")
 	}
 
 	if wd := task.WorkDir(); wd != "" {
-		log.Debug("setting work dir", "wd", wd)
+		log.WithFields(logrus.Fields{"wd": wd}).Debug("setting work dir")
 		container.Config.WorkingDir = wd
 	}
 
@@ -199,7 +199,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		authConfig := docker.AuthConfiguration{}
 		auth := task.Auth()
 		if auth != "" {
-			log.Debug("Using auth", "auth", auth)
+			log.WithFields(logrus.Fields{"auth": auth}).Debug("Using auth")
 			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))
 			ac, err := docker.NewAuthConfigurations(read)
 			if err != nil {
@@ -288,15 +288,15 @@ func (drv *DockerDriver) cancel(container string) {
 	stopTimer.Measure()
 }
 
-func logDockerContainerConfig(logger log.Logger, container docker.CreateContainerOptions) {
+func logDockerContainerConfig(log logrus.FieldLogger, container docker.CreateContainerOptions) {
 	// envvars are left out because they could have private information.
-	logger.Error("Could not create container",
-		"command", container.Config.Cmd,
-		"memory", container.Config.Memory,
-		"cpu_shares", container.Config.CPUShares,
-		"hostname", container.Config.Hostname,
-		"image", container.Config.Image,
-		"volumes", container.Config.Volumes,
-		"binds", container.HostConfig.Binds,
-	)
+	log.WithFields(logrus.Fields{
+		"command":    container.Config.Cmd,
+		"memory":     container.Config.Memory,
+		"cpu_shares": container.Config.CPUShares,
+		"hostname":   container.Config.Hostname,
+		"image":      container.Config.Image,
+		"volumes":    container.Config.Volumes,
+		"binds":      container.HostConfig.Binds,
+	}).Error("Could not create container")
 }

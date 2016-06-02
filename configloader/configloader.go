@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/iron-io/titan/log"
+	"github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/runner/agent"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/pivotal-golang/bytefmt"
@@ -75,10 +75,10 @@ func init() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		if _, ok := err.(viper.UnsupportedConfigError); ok {
-			log.Error("Couldn't read config file, this is fine, it's not required", "err", err)
+			logrus.WithError(err).Error("Couldn't read config file, this is fine, it's not required")
 			// ignore
 		} else {
-			log.Fatal("Error reading config file", "err", err)
+			logrus.WithError(err).Fatal("Error reading config file")
 		}
 	}
 
@@ -87,7 +87,7 @@ func init() {
 		viper.SetConfigType("json")
 		err = viper.ReadConfig(bytes.NewBufferString(os.Getenv("CONFIG")))
 		if err != nil {
-			log.Fatal("Error reading CONFIG from env", "err", err)
+			logrus.WithError(err).Fatal("Error reading CONFIG from env")
 		}
 	}
 
@@ -96,7 +96,7 @@ func init() {
 	dconfig.Defaults()
 	memPerJob, err := bytefmt.ToBytes(viper.GetString("memory_per_job"))
 	if err != nil {
-		log.Fatal("Invalid MEMORY_PER_JOB variable", "memory_per_job", viper.GetString("memory_per_job"), "err", err)
+		logrus.WithError(err).WithFields(logrus.Fields{"memory_per_job": viper.GetString("memory_per_job")}).Fatal("Invalid MEMORY_PER_JOB variable")
 	}
 	// todo: we should pass the entire config to the driver so they can use the same variable. Or make a config interface and pass it along.
 	dconfig.Memory = memPerJob
@@ -106,7 +106,7 @@ func init() {
 	if viper.InConfig("runner") {
 		err = viper.Sub("runner").Unmarshal(&runnerConfig)
 		if err != nil {
-			log.Fatal("could not unmarshal runner configuration from config", "err", err)
+			logrus.WithError(err).Fatal("could not unmarshal runner configuration from config")
 		}
 	}
 
@@ -121,16 +121,16 @@ func init() {
 	logLevel = viper.GetString("log_level")
 
 	{
-		log.Info("configloader setting log level", "level", logLevel)
-		level, err := log.ParseLevel(logLevel)
+		logrus.WithFields(logrus.Fields{"level": logLevel}).Info("configloader setting log level")
+		level, err := logrus.ParseLevel(logLevel)
 		if err != nil {
-			log.Warn("Could not parse log level, setting to info", "level", logLevel)
-			level = log.InfoLevel
+			logrus.WithFields(logrus.Fields{"level": logLevel}).Warn("Could not parse log level, setting to info")
+			level = logrus.InfoLevel
 		}
-		log.SetLevel(level)
+		logrus.SetLevel(level)
 	}
 
-	log.Info("configloader runner configuration", "runner_configuration", runnerConfig)
+	logrus.WithFields(logrus.Fields{"runner_configuration": runnerConfig}).Info("configloader runner configuration")
 }
 
 func RunnerConfiguration() *agent.Config {
