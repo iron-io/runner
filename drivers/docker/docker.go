@@ -8,13 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/net/context"
-
-	log "github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	titancommon "github.com/iron-io/titan/common"
+	"github.com/iron-io/titan/log"
 	"github.com/iron-io/titan/runner/drivers"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
+	"golang.org/x/net/context"
 )
 
 type DockerDriver struct {
@@ -27,13 +26,13 @@ type DockerDriver struct {
 func NewDocker(env *titancommon.Environment, conf *drivercommon.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
-		log.WithError(err).Fatal("couldn't resolve hostname")
+		log.Fatal("couldn't resolve hostname", "err", err)
 	}
 
 	// docker, err := docker.NewClient(conf.Docker)
 	docker, err := docker.NewClientFromEnv()
 	if err != nil {
-		log.WithError(err).Fatal("couldn't create docker client")
+		log.Fatal("couldn't create docker client", "err", err)
 	}
 
 	return &DockerDriver{
@@ -127,10 +126,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 }
 
 func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, error) {
-	l := log.WithFields(log.Fields{
-		"image": task.Image(),
-		// todo: add context fields here, job id, etc.
-	})
+	log := log.New("image", task.Image()) // todo: add context fields here, job id, etc.
 
 	if task.Image() == "" {
 		return "", errors.New("no image specified, this runner cannot run this")
@@ -173,11 +169,11 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		container.Config.Volumes[containerDir] = struct{}{}
 		mapn := fmt.Sprintf("%s:%s", hostDir, containerDir)
 		container.HostConfig.Binds = append(container.HostConfig.Binds, mapn)
-		l.Debugln("setting volumes ", mapn)
+		log.Debug("setting volumes", "volumes", mapn)
 	}
 
 	if wd := task.WorkDir(); wd != "" {
-		l.Debugln("setting work dir", wd)
+		log.Debug("setting work dir", "wd", wd)
 		container.Config.WorkingDir = wd
 	}
 
@@ -186,11 +182,11 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	if err != nil {
 		if err != docker.ErrNoSuchImage {
 			createTimer.Measure()
-			logDockerContainerConfig(l, container)
+			logDockerContainerConfig(log, container)
 			drv.Inc("docker", "container_create_error", 1, 1.0)
 			return "", fmt.Errorf("docker.CreateContainer: %v", err)
 		}
-		l.WithError(err).Infoln("could not create container due to missing image, trying to pull...")
+		log.Info("could not create container due to missing image, trying to pull...")
 
 		regHost := "docker.io"
 		repo, tag := docker.ParseRepositoryTag(task.Image())
@@ -203,7 +199,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		authConfig := docker.AuthConfiguration{}
 		auth := task.Auth()
 		if auth != "" {
-			l.Debugln("Using auth", auth)
+			log.Debug("Using auth", "auth", auth)
 			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))
 			ac, err := docker.NewAuthConfigurations(read)
 			if err != nil {
@@ -224,7 +220,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		c, err = drv.docker.CreateContainer(container)
 		createTimer.Measure()
 		if err != nil {
-			logDockerContainerConfig(l, container)
+			logDockerContainerConfig(log, container)
 			drv.Inc("docker", "container_create_error", 1, 1.0)
 			return "", fmt.Errorf("docker.CreateContainer try 2: %v", err)
 		}
@@ -292,15 +288,15 @@ func (drv *DockerDriver) cancel(container string) {
 	stopTimer.Measure()
 }
 
-func logDockerContainerConfig(logger *log.Entry, container docker.CreateContainerOptions) {
+func logDockerContainerConfig(logger log.Logger, container docker.CreateContainerOptions) {
 	// envvars are left out because they could have private information.
-	logger.WithFields(log.Fields{
-		"command":    container.Config.Cmd,
-		"memory":     container.Config.Memory,
-		"cpu_shares": container.Config.CPUShares,
-		"hostname":   container.Config.Hostname,
-		"image":      container.Config.Image,
-		"volumes":    container.Config.Volumes,
-		"binds":      container.HostConfig.Binds,
-	}).Error("Could not create container")
+	logger.Error("Could not create container",
+		"command", container.Config.Cmd,
+		"memory", container.Config.Memory,
+		"cpu_shares", container.Config.CPUShares,
+		"hostname", container.Config.Hostname,
+		"image", container.Config.Image,
+		"volumes", container.Config.Volumes,
+		"binds", container.HostConfig.Binds,
+	)
 }
