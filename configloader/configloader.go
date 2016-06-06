@@ -118,6 +118,16 @@ func init() {
 	}
 
 	apiURL = viper.GetString("api_url")
+	logLevel = viper.GetString("log_level")
+
+	{
+		logrus.WithFields(logrus.Fields{"level": logLevel}).Info("configloader setting log level")
+		level, err := logrus.ParseLevel(logLevel)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{"level": logLevel}).Warn("Could not parse log level, setting to info")
+			level = logrus.InfoLevel
+		}
+	}
 
 	logrus.WithFields(logrus.Fields{"runner_configuration": runnerConfig}).Info("configloader runner configuration")
 }
