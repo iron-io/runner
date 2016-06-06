@@ -1,22 +1,12 @@
-FROM iron/base:edge
+# iron/dind
 
-RUN echo '@community http://nl.alpinelinux.org/alpine/edge/community' >> /etc/apk/repositories
-RUN apk update && apk upgrade \
-    && apk add docker@community \
-    && rm -rf /var/cache/apk/*
+FROM docker:1.11-dind
 
-# RUN apk add openrc
-# puts file in /etc/runlevels/...
-# THIS DOESN'T WORK ANYMORE? 
-# RUN rc-update add docker default
-# CMD ["/sbin/rc", "default"]
+RUN apk update && apk upgrade && apk add --no-cache ca-certificates
 
 COPY entrypoint.sh /usr/local/bin/
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# If we don't want dind, we could have a separate img that doesn't start docker, in that case, remove the entrypoint things above and just use:
-# ENTRYPOINT ["./runner"]
-
-# USAGE: Add a CMD to your own Dockerfile to use this. 
+# USAGE: Add a CMD to your own Dockerfile to use this (NOT an ENTRYPOINT, so that this is called)
 # CMD ["./runner"]
