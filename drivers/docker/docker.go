@@ -51,6 +51,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, err
 	}
+	defer drv.removeContainer(container)
 
 	sentence := make(chan string, 1)
 
@@ -148,6 +149,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	}
 
 	container := docker.CreateContainerOptions{
+		Name: "task-" + task.Id(),
 		Config: &docker.Config{
 			Env:       envvars,
 			Cmd:       cmd,
