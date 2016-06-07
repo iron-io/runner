@@ -4,6 +4,7 @@ const (
 	whereisdocker = "unix:///var/run/docker.sock"
 )
 
+// USE DefaultConfig() to obtain an instance. DO NOT instantiate this directly.
 type Config struct {
 	Docker         string `json:"docker"`
 	Memory         uint64 `json:"memory"`
@@ -24,4 +25,10 @@ func (c *Config) Defaults() {
 	if c.DefaultTimeout == 0 {
 		c.DefaultTimeout = 3600
 	}
+}
+
+func DefaultConfig() *Config {
+	c := &Config{}
+	c.Defaults()
+	return c
 }

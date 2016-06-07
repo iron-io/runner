@@ -58,18 +58,10 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	outTasker, errTasker := task.Logger()
 
-	// Currently, hybrid worker is gathering the last 5 lines of stdout/stderr and searching
-	// for a few key substrings regarding max memory usage. We should instead capture the last N bytes
-	// to check for these substrings as it's more controllable than capturing N lines.
+	// We may need to capture some lines here using the Head or Tail writers to find substrings regarding memory usage or other Docker errors.
 	// IW-125
-	// outLastLines, err := titancommon.NewLastWritesWriter(5)
-	// errLastLines, err := titancommon.NewLastWritesWriter(5)
-	// ...
-	// outLineWriter := titancommon.NewLineWriter(outLastLines)
-	// errLineWriter := titancommon.NewLineWriter(errLastLines)
-
-	mwOut := io.MultiWriter(outTasker) //, outLineWriter)
-	mwErr := io.MultiWriter(errTasker) //, errLineWriter)
+	mwOut := io.MultiWriter(outTasker)
+	mwErr := io.MultiWriter(errTasker)
 
 	// Docker sometimes fails to close the attach response connection even after
 	// the container stops, leaving the runner stuck. We use a non-blocking
@@ -92,10 +84,6 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	status, err := drv.status(exitCode, sentence)
 
-	// outLineWriter.Flush()
-	// errLineWriter.Flush()
-	// outLines := outLastLines.Fetch()
-	// errLines := errLastLines.Fetch()
 	// TODO: Check stdout/stderr for driver-specific errors like OOM.
 
 	// the err returned above is an error from running user code, so we don't return it from this method.

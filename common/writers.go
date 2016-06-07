@@ -61,49 +61,130 @@ func (li *LineWriter) Flush() (int, error) {
 	return li.w.Write(b)
 }
 
-// lastWritesWriter stores the last N writes in buffers
-// Previously was putting a line-parsing writer upstream from this
-type LastWritesWriter struct {
-	tail int
-	b    []*bytes.Buffer
+// HeadLinesWriter stores upto the first N lines in a buffer that can be
+// retrieved via Head().
+type HeadLinesWriter struct {
+	buffer bytes.Buffer
+	max    int
 }
 
-func NewLastWritesWriter(n int) (*LastWritesWriter, error) {
-	if n == 0 {
-		return nil, errors.New("LastWriteWriter's buffer must be 1 or larger")
+func NewHeadLinesWriter(max int) *HeadLinesWriter {
+	return &HeadLinesWriter{
+		buffer: bytes.Buffer{},
+		max:    max,
 	}
-
-	return &LastWritesWriter{
-		tail: -1,
-		b:    make([]*bytes.Buffer, n),
-	}, nil
 }
 
-func (lnw *LastWritesWriter) Write(p []byte) (n int, err error) {
-	newtail := (lnw.tail + 1) % len(lnw.b)
-
-	t := lnw.b[newtail]
-	if t == nil {
-		t = bytes.NewBuffer(p)
-	} else {
-		t.Reset()
-		t.Write(p)
+// Writes start failing once the writer has reached capacity.
+// In such cases the return value is the actual count written (may be zero) and io.ErrShortWrite.
+func (h *HeadLinesWriter) Write(p []byte) (n int, err error) {
+	var afterNewLine int
+	for h.max > 0 && afterNewLine < len(p) {
+		idx := bytes.IndexByte(p[afterNewLine:], '\n')
+		if idx == -1 {
+			h.buffer.Write(p[afterNewLine:])
+			afterNewLine = len(p)
+		} else {
+			h.buffer.Write(p[afterNewLine : afterNewLine+idx+1])
+			afterNewLine = afterNewLine + idx + 1
+			h.max--
+		}
 	}
-	lnw.b[newtail] = t
 
-	lnw.tail = newtail
+	if afterNewLine == len(p) {
+		return afterNewLine, nil
+	}
 
+	return afterNewLine, io.ErrShortWrite
+}
+
+// The returned bytes alias the buffer, the same restrictions as
+// bytes.Buffer.Bytes() apply.
+func (h *HeadLinesWriter) Head() []byte {
+	return h.buffer.Bytes()
+}
+
+// TailLinesWriter stores upto the last N lines in a buffer that can be retrieved
+// via Tail(). The truncation is only performed when more bytes are received
+// after '\n', so the buffer contents for both these writes are identical.
+//
+// tail writer that captures last 3 lines.
+// 'a\nb\nc\nd\n' -> 'b\nc\nd\n'
+// 'a\nb\nc\nd' -> 'b\nc\nd'
+type TailLinesWriter struct {
+	buffer             bytes.Buffer
+	max                int
+	newlineEncountered bool
+	// Tail is not idempotent without this.
+	tailCalled bool
+}
+
+func NewTailLinesWriter(max int) *TailLinesWriter {
+	return &TailLinesWriter{
+		buffer: bytes.Buffer{},
+		max:    max,
+	}
+}
+
+// Write always succeeds! This is because all len(p) bytes are written to the
+// buffer before it is truncated.
+func (t *TailLinesWriter) Write(p []byte) (n int, err error) {
+	if t.tailCalled {
+		panic("Tail() has already been called.")
+	}
+
+	var afterNewLine int
+	for afterNewLine < len(p) {
+		// This is at the top of the loop so it does not operate on trailing
+		// newlines. That is handled by Tail() where we have full knowledge that it
+		// is indeed the true trailing newline (if any).
+		if t.newlineEncountered {
+			if t.max > 0 {
+				// we still have capacity
+				t.max--
+			} else {
+				// chomp a newline.
+				t.chompNewline()
+			}
+		}
+
+		idx := bytes.IndexByte(p[afterNewLine:], '\n')
+		if idx == -1 {
+			t.buffer.Write(p[afterNewLine:])
+			afterNewLine = len(p)
+			t.newlineEncountered = false
+		} else {
+			t.buffer.Write(p[afterNewLine : afterNewLine+idx+1])
+			afterNewLine = afterNewLine + idx + 1
+			t.newlineEncountered = true
+		}
+
+	}
 	return len(p), nil
 }
 
-func (lnw *LastWritesWriter) Fetch() [][]byte {
-	var r [][]byte
-	for y := 0; y < len(lnw.b); y++ {
-		i := (lnw.tail + y + 1) % len(lnw.b)
-		b := lnw.b[i]
-		if b != nil {
-			r = append(r, b.Bytes())
+func (t *TailLinesWriter) chompNewline() {
+	b := t.buffer.Bytes()
+	idx := bytes.IndexByte(b, '\n')
+	if idx >= 0 {
+		t.buffer.Next(idx + 1)
+	} else {
+		// pretend a trailing newline exists. In the call in Write() this will
+		// never be hit.
+		t.buffer.Truncate(0)
+	}
+}
+
+// The returned bytes alias the buffer, the same restrictions as
+// bytes.Buffer.Bytes() apply.
+//
+// Once Tail() is called, further Write()s panic.
+func (t *TailLinesWriter) Tail() []byte {
+	if !t.tailCalled {
+		t.tailCalled = true
+		if t.max <= 0 {
+			t.chompNewline()
 		}
 	}
-	return r
+	return t.buffer.Bytes()
 }

@@ -3,6 +3,7 @@ package common
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"testing"
 )
 
@@ -48,35 +49,87 @@ func TestLineWriter(t *testing.T) {
 	}
 }
 
-func testLastWritesWriter(writes, size int, t *testing.T) {
-	lnw, _ := NewLastWritesWriter(size)
-	for x := 0; x < writes; x++ {
-		lnw.Write([]byte(fmt.Sprintf("%v line", x)))
+func TestHeadWriter(t *testing.T) {
+	data := []byte("the quick\n brown\n fox jumped\n over the\n lazy dog.")
+	w := NewHeadLinesWriter(3)
+	_, err := w.Write(data[:4])
+	if err != nil {
+		t.Errorf("Expected nil error on small write")
 	}
 
-	r := lnw.Fetch()
-	if len(r) != min(size, writes) {
-		t.Errorf("Expected %v lines; got %v", min(size, writes), len(r))
+	if !bytes.Equal(w.Head(), []byte("the ")) {
+		t.Errorf("Expected 4 bytes in head, got '%s'", w.Head())
 	}
 
-	expectedStart := writes - min(size, writes)
-	for x := 0; x < len(r); x++ {
-		if !bytes.Contains(r[x], []byte(fmt.Sprintf("%v line", expectedStart+x))) {
-			t.Errorf("Expected %vth line; got '%s'", expectedStart+x, r[x])
+	n, err := w.Write(data[4:16])
+	if n != len(data[4:16]) || err != nil {
+		t.Errorf("HeadWriter Write() does not satisfy contract about failing writes.")
+	}
+
+	if !bytes.Equal(w.Head(), []byte("the quick\n brown")) {
+		t.Errorf("unexpected contents of head, got '%s'", w.Head())
+	}
+
+	n, err = w.Write(data[16:])
+	if n != (29-16) || err != io.ErrShortWrite {
+		t.Errorf("HeadWriter Write() does not satisfy contract about failing writes.")
+	}
+	if !bytes.Equal(w.Head(), data[:29]) {
+		t.Errorf("unexpected contents of head, got '%s'", w.Head())
+	}
+}
+
+func testTail(t *testing.T, n int, output []byte, writes ...[]byte) {
+	w := NewTailLinesWriter(n)
+	for _, slice := range writes {
+		written, err := w.Write(slice)
+		if written != len(slice) || err != nil {
+			t.Errorf("Tail Write() should always succeed, but failed, input=%s, input length = %d, written=%d, err=%s", slice, len(slice), written, err)
 		}
 	}
-}
-
-func TestLastWritesWriter(t *testing.T) {
-	testLastWritesWriter(0, 1, t)
-	testLastWritesWriter(1, 4, t)
-	testLastWritesWriter(4, 4, t)
-	testLastWritesWriter(10, 4, t)
-}
-
-func min(a, b int) int {
-	if a <= b {
-		return a
+	if !bytes.Equal(w.Tail(), output) {
+		t.Errorf("Output did not match for tail writer of length %d: Expected '%s', got '%s'", n, output, w.Tail())
 	}
-	return b
+}
+
+func TestTailWriter(t *testing.T) {
+	inputs := [][]byte{[]byte("a\nb\n"), []byte("gh"), []byte("\n")}
+	testTail(t, 2, []byte("b\ngh\n"), inputs...)
+}
+
+func TestZeroAndOneTailWriter(t *testing.T) {
+	// zero line writer, with only single line added to it should return empty buffer.
+	testTail(t, 0, []byte(""), []byte("Hello World\n"))
+	testTail(t, 0, []byte(""), []byte("Hello World"))
+
+	b1 := []byte("Hello World")
+	testTail(t, 1, b1, b1)
+
+	b1 = []byte("Hello World\n")
+	testTail(t, 1, b1, b1)
+
+	b2 := []byte("Yeah!\n")
+	testTail(t, 1, b2, b1, b2)
+
+	b1 = []byte("Flat write")
+	b2 = []byte("Yeah!\n")
+	j := bytes.Join([][]byte{b1, b2}, []byte{})
+	testTail(t, 1, j, b1, b2)
+}
+
+func TestTailWriterTrailing(t *testing.T) {
+	input1 := []byte("a\nb\nc\nd\ne")
+	input2 := []byte("a\nb\nc\nd\ne\n")
+	w1 := NewTailLinesWriter(4)
+	w1.Write(input1)
+	w2 := NewTailLinesWriter(4)
+	w2.Write(input2)
+	if !bytes.Equal(w1.Tail(), []byte("b\nc\nd\ne")) {
+		t.Errorf("Tail not working correctly, got '%s'", w1.Tail())
+	}
+
+	t2 := w2.Tail()
+	if !bytes.Equal(w1.Tail(), t2[:len(t2)-1]) {
+		t.Errorf("Tailwriter does not transition correctly over trailing newline. '%s', '%s'", w1.Tail(), t2)
+	}
 }

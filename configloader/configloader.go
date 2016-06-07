@@ -92,8 +92,7 @@ func init() {
 	}
 
 	// Set up defaults.
-	dconfig := &drivercommon.Config{}
-	dconfig.Defaults()
+	dconfig := drivercommon.DefaultConfig()
 	memPerJob, err := bytefmt.ToBytes(viper.GetString("memory_per_job"))
 	if err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{"memory_per_job": viper.GetString("memory_per_job")}).Fatal("Invalid MEMORY_PER_JOB variable")
