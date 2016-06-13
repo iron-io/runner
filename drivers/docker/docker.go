@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -15,6 +14,18 @@ import (
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"golang.org/x/net/context"
 )
+
+// We have different clients who have different ways of providing credentials
+// to access private images. Some of these clients try to do multiple pulls
+// with separate credentials and hope that one of them works.
+type Auther interface {
+	// Return a list of AuthConfigurations to try.
+	// They are tried in sequence and the first one to work is picked.
+	// If you want to try without credentials, return a one element config with a default AuthConfiguration.
+	// If a zero-element array is returned, no Pull is performed!
+	// Named with Docker because tasks may want to implement multiple auth interfaces.
+	DockerAuth() []docker.AuthConfiguration
+}
 
 type DockerDriver struct {
 	conf     *drivercommon.Config
@@ -44,7 +55,7 @@ func NewDocker(env *titancommon.Environment, conf *drivercommon.Config) *DockerD
 }
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
-// todo: pass in context
+// The docker driver will attempt to cast the task to a Auther. If that succeeds, private image support is available. See the Auther interface for how to implement this.
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
 	container, err := drv.startTask(task)
 	if err != nil {
@@ -175,31 +186,9 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	if err == docker.ErrNoSuchImage {
 		log.Info("could not create container due to missing image, trying to pull...")
 
-		regHost := "docker.io"
-		repo, tag := docker.ParseRepositoryTag(task.Image())
-		split := strings.Split(repo, "/")
-		if len(split) >= 3 {
-			// then we have an explicit registry
-			regHost = split[0]
-		}
-		// todo: we should probably move all this auth stuff up a level, don't need to do it for every job
-		authConfig := docker.AuthConfiguration{}
-		auth := task.Auth()
-		if auth != "" {
-			log.WithFields(logrus.Fields{"auth": auth}).Debug("Using auth")
-			read := strings.NewReader(fmt.Sprintf(`{"%s":{"auth":"%s"}}`, regHost, auth))
-			ac, err := docker.NewAuthConfigurations(read)
-			if err != nil {
-				return "", fmt.Errorf("failed to create auth configurations: %v", err)
-			}
-			authConfig = ac.Configs[regHost]
-		}
-
-		pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
-		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, authConfig)
-		pullTimer.Measure()
+		err := drv.pullImage(task)
 		if err != nil {
-			return "", fmt.Errorf("docker.PullImage: %v", err)
+			return "", fmt.Errorf("pullImage: %v", err)
 		}
 
 		// should have it now
@@ -236,6 +225,39 @@ func (drv *DockerDriver) removeContainer(container string) {
 	drv.docker.RemoveContainer(docker.RemoveContainerOptions{
 		ID: container, Force: true, RemoveVolumes: true})
 	removeTimer.Measure()
+}
+
+func (drv *DockerDriver) pullImage(task drivers.ContainerTask) error {
+	var auther Auther
+	if cast, ok := task.(Auther); ok {
+		auther = cast
+	}
+
+	var configs []docker.AuthConfiguration
+	if auther != nil {
+		configs = auther.DockerAuth()
+		drv.Measure("docker", "pull_image_auth_config_len", int64(len(configs)), 1.0)
+	} else {
+		// If the task does not support auth, we don't want to skip pull entirely.
+		configs = []docker.AuthConfiguration{docker.AuthConfiguration{}}
+		drv.Inc("docker", "pull_image_auth_none", 1, 1.0)
+	}
+
+	if len(configs) == 0 {
+		return fmt.Errorf("No AuthConfigurations specified! Did not attempt pull. Bad Auther implementation?")
+	}
+
+	repo, tag := docker.ParseRepositoryTag(task.Image())
+	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
+	var err error
+	for _, config := range configs {
+		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+		if err == nil {
+			break
+		}
+	}
+	pullTimer.Measure()
+	return err
 }
 
 // watch for cancel or timeout and kill process.

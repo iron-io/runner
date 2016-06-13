@@ -35,7 +35,6 @@ type ContainerTask interface {
 	Id() string
 	Image() string
 	Timeout() uint
-	Auth() string
 	// Drivers should write output log to this writer. Must be non-nil. Use
 	// io.Discard if log is irrelevant.
 	Logger() (stdout, stderr io.Writer)
