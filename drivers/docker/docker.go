@@ -11,6 +11,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	titancommon "github.com/iron-io/titan/common"
+	"github.com/iron-io/titan/runner/agent"
 	"github.com/iron-io/titan/runner/drivers"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"golang.org/x/net/context"
@@ -96,7 +97,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
 	cID, err := drv.createContainer(task)
 	if err != nil {
-		return "", fmt.Errorf("docker driver createContainer: %v", err)
+		return "", err
 	}
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
@@ -167,13 +168,9 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	c, err := drv.docker.CreateContainer(container)
-	if err != nil {
-		if err != docker.ErrNoSuchImage {
-			createTimer.Measure()
-			logDockerContainerConfig(log, container)
-			drv.Inc("docker", "container_create_error", 1, 1.0)
-			return "", fmt.Errorf("docker.CreateContainer: %v", err)
-		}
+	createTimer.Measure()
+
+	if err == docker.ErrNoSuchImage {
 		log.Info("could not create container due to missing image, trying to pull...")
 
 		regHost := "docker.io"
@@ -210,10 +207,25 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		if err != nil {
 			logDockerContainerConfig(log, container)
 			drv.Inc("docker", "container_create_error", 1, 1.0)
-			return "", fmt.Errorf("docker.CreateContainer try 2: %v", err)
+			return "", createContainerErrorf("docker.CreateContainer try 2: %v", err)
 		}
+	} else if err != nil {
+		logDockerContainerConfig(log, container)
+		drv.Inc("docker", "container_create_error", 1, 1.0)
+		return "", createContainerErrorf("docker.CreateContainer: %v", err)
 	}
+
 	return c.ID, nil
+}
+
+func createContainerErrorf(format string, err error) error {
+	errmsg := fmt.Errorf(format, err)
+
+	if err == docker.ErrConnectionRefused {
+		return agent.UnrecoverableError(errmsg)
+	}
+
+	return errmsg
 }
 
 func (drv *DockerDriver) removeContainer(container string) {
