@@ -83,7 +83,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		return nil, fmt.Errorf("wait container: %v", err)
 	}
 
-	status, err := drv.status(exitCode, sentence)
+	status, err := drv.status(container, exitCode, sentence)
 
 	// TODO: Check stdout/stderr for driver-specific errors like OOM.
 
@@ -251,7 +251,7 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string, task drive
 	}
 }
 
-func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, error) {
+func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan string) (string, error) {
 	var status string
 	var err error
 	select {
@@ -263,14 +263,22 @@ func (drv *DockerDriver) status(exitCode int, sentence <-chan string) (string, e
 		case 137:
 			// Probably an OOM kill
 
-			// TODO: try harder to detect OOM kills. We can call
-			// docker.InspectContainer and look at
-			// container.State.OOMKilled, but this field isn't set
-			// consistently.
-			// See: https://github.com/docker/docker/issues/15621
+			cinfo, err := drv.docker.InspectContainer(container)
+			if err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("inspecting container to check for oom")
+				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
+			} else {
+				if !cinfo.State.OOMKilled {
+					// It is possible that the host itself is running out of memory and
+					// the host kernel killed one of the container processes.
+					// See: https://github.com/docker/docker/issues/15621
+					logrus.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
+					drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
+					// TODO: This may be a situation where we would like to shut down the runner completely.
+				}
+			}
 
 			status = drivers.StatusKilled
-			// TODO: better message; show memory limit
 			err = drivers.ErrOutOfMemory
 		default:
 			status = drivers.StatusError
