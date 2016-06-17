@@ -3,7 +3,6 @@ package docker
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -57,12 +56,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	go drv.nanny(ctx, container, task, sentence)
 
-	outTasker, errTasker := task.Logger()
-
-	// We may need to capture some lines here using the Head or Tail writers to find substrings regarding memory usage or other Docker errors.
-	// IW-125
-	mwOut := io.MultiWriter(outTasker)
-	mwErr := io.MultiWriter(errTasker)
+	mwOut, mwErr := task.Logger()
 
 	// Docker sometimes fails to close the attach response connection even after
 	// the container stops, leaving the runner stuck. We use a non-blocking
@@ -144,7 +138,15 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 			Image:     task.Image(),
 			Volumes:   map[string]struct{}{},
 		},
-		HostConfig: &docker.HostConfig{},
+		HostConfig: &docker.HostConfig{
+			LogConfig: docker.LogConfig{
+				// NOTE: this will make a docker log with 1 line, using 'none' meant we could not get logs after attaching.
+				// attaching to the container will still give the full task log output, this just keeps docker from doubly
+				// logging the same thing (in their very inefficient format) internally.
+				Type:   "json-file",
+				Config: map[string]string{"max-size": "0"},
+			},
+		},
 	}
 
 	volumes := task.Volumes()
