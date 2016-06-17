@@ -40,7 +40,7 @@ type DockerDriver struct {
 	// credentials known to be OK to access the image.  This is never revoked, so
 	// even if the image permission on the Registry is revoked, users can
 	// continue to queue tasks.  This should not be a problem in practice because
-	// customers should also revoke the user on IronWorker.
+	// customers should also revoke the user on the Tasker.
 	authCacheLock sync.RWMutex
 	authCache     map[string][]docker.AuthConfiguration
 	*titancommon.Environment
@@ -267,6 +267,7 @@ func normalizedImage(image string) (string, string) {
 // Empty arrays cannot use any image, use a single element default AuthConfiguration for public.
 // Returns true if any of the configs presented exist in the cached configs.
 func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthConfiguration) bool {
+	logrus.WithFields(logrus.Fields{"image": image, "check": configs}).Info("AllowedToUse called")
 	// Tags are not part of the permission model.
 	key, _ := normalizedImage(image)
 	drv.authCacheLock.RLock()
@@ -275,6 +276,7 @@ func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthCo
 		cached := drv.authCache[key]
 		for _, config := range configs {
 			for _, knownConfig := range cached {
+				logrus.WithFields(logrus.Fields{"image": image, "known": knownConfig, "check": config}).Info("Checking")
 				if config.Email == knownConfig.Email &&
 					config.Username == knownConfig.Username &&
 					config.Password == knownConfig.Password &&
@@ -284,6 +286,8 @@ func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthCo
 				}
 			}
 		}
+	} else {
+		logrus.Info("Key does not exist")
 	}
 
 	return false
