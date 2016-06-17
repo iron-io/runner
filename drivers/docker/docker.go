@@ -222,7 +222,7 @@ func createContainerErrorf(format string, err error) error {
 	errmsg := fmt.Errorf(format, err)
 
 	if err == docker.ErrConnectionRefused {
-		return agent.UnrecoverableError(errmsg)
+		return &agent.UnrecoverableError{errmsg}
 	}
 
 	return errmsg
