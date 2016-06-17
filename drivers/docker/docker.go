@@ -254,7 +254,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) error {
 func normalizedImage(image string) (string, string) {
 	repo, tag := docker.ParseRepositoryTag(image)
 	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
-	// Without this token auth fails.
+	// Without this, token auth fails.
 	if strings.Count(repo, "/") == 0 {
 		repo = "library/" + repo
 	}
@@ -264,7 +264,7 @@ func normalizedImage(image string) (string, string) {
 	return repo, tag
 }
 
-// Empty arrays cannot use any image, use a single element default AuthConfiguration for public.
+// Empty arrays cannot use any image; use a single element default AuthConfiguration for public.
 // Returns true if any of the configs presented exist in the cached configs.
 func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthConfiguration) bool {
 	logrus.WithFields(logrus.Fields{"image": image, "check": configs}).Info("AllowedToUse called")
