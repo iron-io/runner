@@ -251,11 +251,24 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) error {
 	return err
 }
 
+func normalizedImage(image string) (string, string) {
+	repo, tag := docker.ParseRepositoryTag(image)
+	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
+	// Without this token auth fails.
+	if strings.Count(repo, "/") == 0 {
+		repo = "library/" + repo
+	}
+	if tag == "" {
+		tag = "latest"
+	}
+	return repo, tag
+}
+
 // Empty arrays cannot use any image, use a single element default AuthConfiguration for public.
 // Returns true if any of the configs presented exist in the cached configs.
 func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthConfiguration) bool {
 	// Tags are not part of the permission model.
-	key, _ := docker.ParseRepositoryTag(image)
+	key, _ := normalizedImage(image)
 	drv.authCacheLock.RLock()
 	defer drv.authCacheLock.RUnlock()
 	if _, exists := drv.authCache[key]; exists {
@@ -266,6 +279,7 @@ func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthCo
 					config.Username == knownConfig.Username &&
 					config.Password == knownConfig.Password &&
 					config.ServerAddress == knownConfig.ServerAddress {
+					logrus.WithFields(logrus.Fields{"image": image}).Info("Cached credentials matched")
 					return true
 				}
 			}
@@ -277,7 +291,7 @@ func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthCo
 
 func (drv *DockerDriver) acceptedCredentials(image string, config docker.AuthConfiguration) {
 	// Tags are not part of the permission model.
-	key, _ := docker.ParseRepositoryTag(image)
+	key, _ := normalizedImage(image)
 	drv.authCacheLock.Lock()
 	defer drv.authCacheLock.Unlock()
 	if _, exists := drv.authCache[key]; !exists {
@@ -347,10 +361,7 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 			break
 		}
 
-		repo, tag := docker.ParseRepositoryTag(task.Image())
-		if tag == "" {
-			tag = "latest"
-		}
+		repo, tag := normalizedImage(task.Image())
 		_, err = regClient.Manifest(repo, tag)
 
 		if err != nil {
