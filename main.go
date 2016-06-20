@@ -15,6 +15,7 @@ import (
 )
 
 func main() {
+	common.SetLogLevel()
 	ctx := agent.BaseContext(context.Background())
 
 	runnerConfig := configloader.RunnerConfiguration()
