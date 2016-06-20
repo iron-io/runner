@@ -239,7 +239,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) error {
 	for i, config := range configs {
 		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
 		// Don't leak config into logs! Go lookup array in user's credentials if user complains.
-		logrus.WithFields(logrus.Fields{"config_index": i, "err": err}).Info("Trying to pull image")
+		logrus.WithFields(logrus.Fields{"config_index": i, "username": config.Username, "err": err}).Info("Trying to pull image")
 		if err == nil {
 			// If a pull with a default AuthConfiguration works, we will insert that
 			// and the image will be considered publicly accessible.
@@ -267,27 +267,29 @@ func normalizedImage(image string) (string, string) {
 // Empty arrays cannot use any image; use a single element default AuthConfiguration for public.
 // Returns true if any of the configs presented exist in the cached configs.
 func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthConfiguration) bool {
-	logrus.WithFields(logrus.Fields{"image": image, "check": configs}).Info("AllowedToUse called")
+	log := logrus.WithFields(logrus.Fields{"image": image})
 	// Tags are not part of the permission model.
 	key, _ := normalizedImage(image)
 	drv.authCacheLock.RLock()
 	defer drv.authCacheLock.RUnlock()
-	if _, exists := drv.authCache[key]; exists {
-		cached := drv.authCache[key]
-		for _, config := range configs {
-			for _, knownConfig := range cached {
-				logrus.WithFields(logrus.Fields{"image": image, "known": knownConfig, "check": config}).Info("Checking")
+	if cached, exists := drv.authCache[key]; exists {
+		// For public images, the first, empty AuthConfiguration will be first in
+		// both lists and match quickly. For others, the sets are likely to be
+		// small.
+		for configI, config := range configs {
+			for knownConfigI, knownConfig := range cached {
 				if config.Email == knownConfig.Email &&
 					config.Username == knownConfig.Username &&
 					config.Password == knownConfig.Password &&
 					config.ServerAddress == knownConfig.ServerAddress {
-					logrus.WithFields(logrus.Fields{"image": image}).Info("Cached credentials matched")
+					log.WithFields(logrus.Fields{"stored_set_index": knownConfigI, "task_set_index": configI}).Info("Cached credentials matched")
 					return true
 				}
 			}
 		}
+		log.Info("No credentials matched.")
 	} else {
-		logrus.Info("Key does not exist")
+		log.Info("Key does not exist")
 	}
 
 	return false
@@ -323,7 +325,8 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 }
 
 func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
-	repoImage := task.Image()
+	repo, tag := normalizedImage(task.Image())
+	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 	_, err := drv.docker.InspectImage(repoImage)
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
@@ -352,6 +355,8 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 
 	var regClient *registry.Registry
 	var err error
+	repo, tag := normalizedImage(task.Image())
+
 	// On authorization failure for the specific image, we try the next config,
 	// on any other failure, we fail immediately.
 	// This way things like being unable to connect to a registry due to some
@@ -365,9 +370,7 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 			break
 		}
 
-		repo, tag := normalizedImage(task.Image())
 		_, err = regClient.Manifest(repo, tag)
-
 		if err != nil {
 			if isAuthError(err) {
 				logrus.WithFields(logrus.Fields{"config_index": i}).Info("Credentials not authorized, trying next.")
