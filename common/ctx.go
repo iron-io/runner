@@ -18,3 +18,12 @@ func Logger(ctx context.Context) logrus.FieldLogger {
 	}
 	return l
 }
+
+// Attempt at simplifying this whole logger in the context thing
+// Could even make this take a generic map, then the logger that gets returned could be used just like the stdlib too, since it's compatible
+func LoggerWithFields(ctx context.Context, fields logrus.Fields) (context.Context, logrus.FieldLogger) {
+	l := Logger(ctx)
+	l = l.WithFields(fields)
+	ctx = WithLogger(ctx, l)
+	return ctx, l
+}
