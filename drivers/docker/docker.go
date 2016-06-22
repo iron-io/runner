@@ -441,9 +441,9 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 		case 137:
 			// Probably an OOM kill
 
-			cinfo, err := drv.docker.InspectContainer(container)
-			if err != nil {
-				logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("inspecting container to check for oom")
+			cinfo, inspectErr := drv.docker.InspectContainer(container)
+			if inspectErr != nil {
+				logrus.WithError(inspectErr).WithFields(logrus.Fields{"container": container}).Error("inspecting container to check for oom")
 				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
 			} else {
 				if !cinfo.State.OOMKilled {
