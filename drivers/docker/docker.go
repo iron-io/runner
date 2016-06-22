@@ -141,6 +141,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 
 	var cmd []string
 	if task.Command() != "" {
+		// TODO We may have to move the sh part out to swapi tasker so it can decide between sh-ing .runtask directly vs using the -c form with a command.
 		// TODO: maybe check for spaces or shell meta characters?
 		// There's a possibility that the container doesn't have sh.
 		cmd = []string{"sh", "-c", task.Command()}
