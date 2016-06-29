@@ -3,6 +3,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -113,9 +114,10 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 }
 
 func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
+	// TODO: Need a way to call down into docker, read the return error, compare it against Unrecoverable error and stop, otherwise continue, while still being able to add context to errors.
 	cID, err := drv.createContainer(task)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("createContainer: %v", err)
 	}
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
@@ -136,7 +138,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	log := logrus.WithFields(logrus.Fields{"image": task.Image()}) // todo: add context fields here, job id, etc.
 
 	if task.Image() == "" {
-		return "", errors.New("no image specified, this runner cannot run this")
+		return "", errors.New("no image specified")
 	}
 
 	var cmd []string
@@ -365,12 +367,7 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 	// aide in debugging when users complain, instead of the error message being
 	// lost in subsequent loops.
 	for i, config := range configs {
-		regClient, err = registryForConfig(config)
-		if err != nil {
-			logrus.WithFields(logrus.Fields{"config_index": i}).WithError(err).Error("Could not connect to registry")
-			break
-		}
-
+		regClient = registryForConfig(config)
 		_, err = regClient.Manifest(repo, tag)
 		if err != nil {
 			if isAuthError(err) {
@@ -389,17 +386,23 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 }
 
 // Only support HTTPS accessible registries for now.
-func registryForConfig(config docker.AuthConfiguration) (*registry.Registry, error) {
+func registryForConfig(config docker.AuthConfiguration) *registry.Registry {
 	addr := config.ServerAddress
 	if strings.Contains(addr, "docker.io") || addr == "" {
 		addr = "index.docker.io"
 	}
-	reg, err := registry.New(fmt.Sprintf("https://%s", addr), config.Username, config.Password)
-	if err == nil {
-		reg.Logf = registry.Quiet
-	}
 
-	return reg, err
+	// Use this instead of registry.New to avoid the Ping().
+	url := strings.TrimSuffix(fmt.Sprintf("https://%s", addr), "/")
+	transport := registry.WrapTransport(http.DefaultTransport, url, config.Username, config.Password)
+	reg := &registry.Registry{
+		URL: url,
+		Client: &http.Client{
+			Transport: transport,
+		},
+		Logf: registry.Quiet,
+	}
+	return reg
 }
 
 func isAuthError(err error) bool {
@@ -424,7 +427,7 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string, task drive
 			sentence <- drivers.StatusTimeout
 			drv.cancel(container)
 		case context.Canceled:
-			sentence <- drivers.StatusKilled
+			sentence <- drivers.StatusCancelled
 			drv.cancel(container)
 		}
 	}
@@ -435,6 +438,9 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 	var err error
 	select {
 	case status = <-sentence: // use this if killed / timed out
+		if status == drivers.StatusKilled {
+			err = drivers.ErrRunnerShutdown
+		}
 	default:
 		switch exitCode {
 		case 0:

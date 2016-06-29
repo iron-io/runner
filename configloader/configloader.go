@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
+	titancommon "github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/runner/agent"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"github.com/pivotal-golang/bytefmt"
@@ -29,7 +30,6 @@ import (
 //       "log_level": "..."
 //     }
 //
-// Callers can use LogLevel() to obtain the log level.
 // configloader will also set the runner's log package's log level to the value obtained here.
 // StatsConfig() returns a stats configuration which can be passed to titan
 // stats.New(). The runner's stats are not initialized using this
@@ -54,7 +54,6 @@ import (
 // For this reason, it should only be used from a binary's main().
 
 var runnerConfig agent.Config
-var logLevel string
 var apiURL string
 
 func init() {
@@ -117,17 +116,12 @@ func init() {
 	}
 
 	apiURL = viper.GetString("api_url")
-	logLevel = viper.GetString("log_level")
-
+	titancommon.SetLogLevel(viper.GetString("log_level"))
 	logrus.WithFields(logrus.Fields{"runner_configuration": runnerConfig}).Info("configloader runner configuration")
 }
 
 func RunnerConfiguration() *agent.Config {
 	return &runnerConfig
-}
-
-func LogLevel() string {
-	return logLevel
 }
 
 func ApiURL() string {

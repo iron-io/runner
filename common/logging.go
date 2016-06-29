@@ -1,14 +1,10 @@
 package common
 
 import (
-	"os"
-
 	"github.com/Sirupsen/logrus"
 )
 
-func SetLogLevel() {
-
-	ll := os.Getenv("LOG_LEVEL")
+func SetLogLevel(ll string) {
 	if ll == "" {
 		ll = "info"
 	}
@@ -19,5 +15,4 @@ func SetLogLevel() {
 		logLevel = logrus.InfoLevel
 	}
 	logrus.SetLevel(logLevel)
-
 }
