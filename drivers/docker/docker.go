@@ -3,6 +3,7 @@ package docker
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -80,6 +81,51 @@ type BeforeStarter interface {
 	// BeforeStart is called just before execution of the container is started.
 	// Returning an error will abort execution and fail the task.
 	BeforeStart() error
+}
+
+// Certain Docker errors are unrecoverable in the sense that the daemon is
+// having problems and this driver can no longer continue.  These errors can
+// bubble up from multiple places, and we would still like to add some context
+// to those errors. The special Errorf() is a thin wrapper around fmt.Errorf to
+// preserve the underlying error.
+type dockerError struct {
+	err error
+}
+
+func (d *dockerError) Error() string {
+	return d.err.Error()
+}
+
+func (d *dockerError) Unrecoverable() bool {
+	// Since go1.6, url.Error satisfies net.Error, so we can trap both using
+	// this.  All network errors are considered unrecoverable since we are only
+	// talking with the local Docker daemon here, so the likely cause is that
+	// Docker is non-responsive.
+	if _, ok := d.err.(net.Error); ok {
+		return true
+	}
+
+	return d.err == docker.ErrConnectionRefused
+}
+
+type wrapperError struct {
+	original error
+	context  error
+}
+
+func (w *wrapperError) Unrecoverable() bool {
+	return agent.IsUnrecoverableError(w.original)
+}
+
+func (w *wrapperError) Error() string {
+	return w.context.Error()
+}
+
+func Errorf(format string, err error) error {
+	return &wrapperError{
+		original: err,
+		context:  fmt.Errorf(format, err),
+	}
 }
 
 type DockerDriver struct {
@@ -166,7 +212,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
 	defer closer.Close()
 	if err != nil {
-		return nil, fmt.Errorf("attach to container: %v", err)
+		return nil, Errorf("attach to container: %v", &dockerError{err})
 	}
 	timer.Measure()
 
@@ -175,7 +221,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	taskTimer.Measure()
 	time.Sleep(10 * time.Millisecond)
 	if err != nil {
-		return nil, fmt.Errorf("wait container: %v", err)
+		return nil, Errorf("wait container: %v", &dockerError{err})
 	}
 
 	status, err := drv.status(container, exitCode, sentence)
@@ -196,7 +242,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	// TODO: Need a way to call down into docker, read the return error, compare it against Unrecoverable error and stop, otherwise continue, while still being able to add context to errors.
 	cID, err := drv.createContainer(task)
 	if err != nil {
-		return "", fmt.Errorf("createContainer: %v", err)
+		return "", Errorf("createContainer: %v", err)
 	}
 
 	removeContainer := func() {
@@ -282,7 +328,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 
 	err := drv.ensureUsableImage(task)
 	if err != nil {
-		return "", fmt.Errorf("ensureUsableImage: %v", err)
+		return "", Errorf("ensureUsableImage: %v", err)
 	}
 
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
@@ -291,20 +337,10 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	if err != nil {
 		logDockerContainerConfig(log, container)
 		drv.Inc("docker", "container_create_error", 1, 1.0)
-		return "", createContainerErrorf("docker.CreateContainer: %v", err)
+		return "", Errorf("docker.CreateContainer: %v", &dockerError{err})
 	}
 
 	return c.ID, nil
-}
-
-func createContainerErrorf(format string, err error) error {
-	errmsg := fmt.Errorf(format, err)
-
-	if err == docker.ErrConnectionRefused {
-		return &agent.UnrecoverableError{errmsg}
-	}
-
-	return errmsg
 }
 
 func (drv *DockerDriver) removeContainer(container string) {
@@ -347,10 +383,14 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
 			continue
+		} else if err == docker.ErrConnectionRefused {
+			// If we couldn't connect to Docker, bail immediately.
+			break
 		}
 		return drv.docker.InspectImage(repoImage)
 	}
-	return nil, errors.New("no credentials could successfully pull image")
+	// TODO: after rebasing, deal with docker error vs auth error if possible.
+	return nil, Errorf("docker.PullImage: %v", &dockerError{err})
 }
 
 func normalizedImage(image string) (string, string) {
@@ -434,9 +474,8 @@ func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
 		imageInfo, err = drv.pullImage(task)
-	}
-	if err != nil {
-		return fmt.Errorf("error getting image %v: %v", repoImage, err)
+	} else if err != nil {
+		return Errorf("something went wrong inspecting image: %v", &dockerError{err})
 	}
 
 	if allower, ok := task.(AllowImager); ok {
@@ -540,7 +579,7 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string, task drive
 	}
 }
 
-func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan string) (string, error) {
+func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan string) (*runResult, error) {
 	var status string
 	var err error
 	select {
@@ -554,8 +593,14 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 
 			cinfo, inspectErr := drv.docker.InspectContainer(container)
 			if inspectErr != nil {
-				logrus.WithError(inspectErr).WithFields(logrus.Fields{"container": container}).Error("inspecting container to check for oom")
 				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
+
+				d := &dockerError{inspectErr}
+				if _, ok := inspectErr.(*docker.NoSuchContainer); ok {
+					return nil, d
+				} else if d.Unrecoverable() {
+					return nil, Errorf("inspecting container to check for OOM: %v", d)
+				}
 			} else {
 				if !cinfo.State.OOMKilled {
 					// It is possible that the host itself is running out of memory and
@@ -574,7 +619,7 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 			err = fmt.Errorf("exit code %d", exitCode)
 		}
 	}
-	return status, err
+	return &runResult{StatusValue: status, Err: err}, nil
 }
 
 // TODO we _sure_ it's dead?
