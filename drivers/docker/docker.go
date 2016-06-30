@@ -390,7 +390,12 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 		return drv.docker.InspectImage(repoImage)
 	}
 	// TODO: after rebasing, deal with docker error vs auth error if possible.
-	return nil, Errorf("docker.PullImage: %v", &dockerError{err})
+	if err != nil {
+		return nil, Errorf("docker.PullImage: %v", &dockerError{err})
+	}
+
+	// TODO: after rebasing, does not sound right.
+	return nil, nil
 }
 
 func normalizedImage(image string) (string, string) {
