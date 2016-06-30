@@ -24,6 +24,23 @@ func IsUserVisibleError(err error) bool {
 	return ok && ue.UserVisible()
 }
 
+func NewUserVisibleError(err error, display error) error {
+	return &userVisibleError{err, display}
+}
+
+// Errorf that preserves the interfaces defined above.
+func Errorf(format string, err error) error {
+	// avoid accidents.
+	if err == nil {
+		return nil
+	}
+
+	return &wrapperError{
+		original: err,
+		context:  fmt.Errorf(format, err),
+	}
+}
+
 type userVisibleError struct {
 	original error
 	display  error
@@ -33,10 +50,6 @@ func (u *userVisibleError) Error() string       { return u.original.Error() }
 func (u *userVisibleError) Unrecoverable() bool { return IsUnrecoverableError(u.original) }
 func (u *userVisibleError) UserVisible() bool   { return true }
 func (u *userVisibleError) UserError() error    { return u.display }
-
-func NewUserVisibleError(err error, display error) error {
-	return &userVisibleError{err, display}
-}
 
 // Make sure wrapperError implements forwards for any interfaces defined above.
 type wrapperError struct {
@@ -62,19 +75,6 @@ func (u *wrapperError) UserError() error {
 
 func (w *wrapperError) Error() string {
 	return w.context.Error()
-}
-
-// Errorf that preserves the interfaces defined above.
-func Errorf(format string, err error) error {
-	// avoid accidents.
-	if err == nil {
-		return nil
-	}
-
-	return &wrapperError{
-		original: err,
-		context:  fmt.Errorf(format, err),
-	}
 }
 
 func Cause(err error) error {
