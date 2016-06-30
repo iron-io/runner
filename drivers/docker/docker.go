@@ -268,7 +268,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		// Remove the created container since we couldn't start it.
 		removeContainer()
 		drv.Inc("docker", "container_start_error", 1, 1.0)
-		return "", fmt.Errorf("docker.StartContainer: %v", err)
+		return "", Errorf("docker.StartContainer: %v", &dockerError{err})
 	}
 	return cID, nil
 }
