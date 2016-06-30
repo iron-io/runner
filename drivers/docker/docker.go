@@ -122,6 +122,12 @@ func (w *wrapperError) Error() string {
 }
 
 func Errorf(format string, err error) error {
+	// avoid accidents.
+	if err == nil {
+		logrus.WithFields(logrus.Fields{"message": format}).Warn("docker driver Errorf() was called with nil error!")
+		return nil
+	}
+
 	return &wrapperError{
 		original: err,
 		context:  fmt.Errorf(format, err),
