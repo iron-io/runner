@@ -78,8 +78,8 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	defer drv.removeContainer(container)
 
 	t := drv.conf.DefaultTimeout
-	if task.Timeout() != 0 {
-		t = task.Timeout()
+	if n := task.Timeout(); n != 0 {
+		t = n
 	}
 	if t == 0 {
 		t = drivercommon.DefaultConfig().DefaultTimeout
