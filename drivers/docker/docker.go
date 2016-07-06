@@ -121,6 +121,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	}
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
+	logrus.WithFields(logrus.Fields{"task_id": task.Id(), "container": cID}).Info("Starting container execution")
 	err = drv.docker.StartContainer(cID, nil)
 	startTimer.Measure()
 	if err != nil {
@@ -165,15 +166,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 			Image:     task.Image(),
 			Volumes:   map[string]struct{}{},
 		},
-		HostConfig: &docker.HostConfig{
-			LogConfig: docker.LogConfig{
-				// NOTE: this will make a docker log with 1 line, using 'none' meant we could not get logs after attaching.
-				// attaching to the container will still give the full task log output, this just keeps docker from doubly
-				// logging the same thing (in their very inefficient format) internally.
-				Type:   "json-file",
-				Config: map[string]string{"max-size": "0"},
-			},
-		},
+		HostConfig: &docker.HostConfig{},
 	}
 
 	volumes := task.Volumes()
