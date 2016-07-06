@@ -23,6 +23,7 @@ func SetLogLevel(ll string) {
 }
 
 func SetLogDest(to, prefix string) {
+	logrus.SetOutput(os.Stderr) // in case logrus changes their mind...
 	if to == "stderr" {
 		return
 	}
