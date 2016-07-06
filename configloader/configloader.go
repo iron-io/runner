@@ -57,12 +57,16 @@ var runnerConfig agent.Config
 var apiURL string
 
 func init() {
+	host, _ := os.Hostname() // if it's blank then at least we tried
+
 	// Set up defaults.
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
 	viper.AutomaticEnv()
+	viper.SetDefault("log_to", "stderr")
+	viper.SetDefault("log_prefix", host)
 	viper.SetDefault("log_level", "info")
 	viper.SetDefault("driver", "docker")
 	viper.SetDefault("api_url", "http://localhost:8080")
@@ -117,6 +121,7 @@ func init() {
 
 	apiURL = viper.GetString("api_url")
 	titancommon.SetLogLevel(viper.GetString("log_level"))
+	titancommon.SetLogDest(viper.GetString("log_to"), viper.GetString("log_prefix"))
 	logrus.WithFields(logrus.Fields{"runner_configuration": runnerConfig}).Info("configloader runner configuration")
 }
 
