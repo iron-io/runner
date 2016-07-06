@@ -77,8 +77,19 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}
 	defer drv.removeContainer(container)
 
-	sentence := make(chan string, 1)
+	t := drv.conf.DefaultTimeout
+	if task.Timeout() != 0 {
+		t = task.Timeout()
+	}
+	if t == 0 {
+		t = drivercommon.DefaultConfig().DefaultTimeout
+		logrus.WithFields(logrus.Fields{"task_id": task.Id()}).Warn("Task timeout or runner configuration was set to zero, using default")
+	}
+	// TODO: make sure tasks don't have excessive timeouts? 24h?
+	// TODO: record task timeout values so we can get a good idea of what people generally set it to.
+	ctx, _ = context.WithTimeout(ctx, time.Duration(t)*time.Second)
 
+	sentence := make(chan string, 1)
 	go drv.nanny(ctx, container, task, sentence)
 
 	mwOut, mwErr := task.Logger()
