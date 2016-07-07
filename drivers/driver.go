@@ -59,8 +59,7 @@ type ContainerTask interface {
 // Set of acceptable errors coming from container engines to TaskRunner
 var (
 	// ErrOutOfMemory for OOM in container engine
-	ErrOutOfMemory    = errors.New("out of memory error")
-	ErrRunnerShutdown = errors.New("killed due to runner shutdown")
+	ErrOutOfMemory = errors.New("out of memory error")
 )
 
 // TODO: ensure some type is applied to these statuses.

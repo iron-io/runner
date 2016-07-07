@@ -430,10 +430,7 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 	var status string
 	var err error
 	select {
-	case status = <-sentence: // use this if killed / timed out
-		if status == drivers.StatusKilled {
-			err = drivers.ErrRunnerShutdown
-		}
+	case status = <-sentence: // use this if timed out
 	default:
 		switch exitCode {
 		case 0:
