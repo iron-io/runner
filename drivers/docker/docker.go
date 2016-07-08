@@ -32,6 +32,48 @@ type Auther interface {
 	DockerAuth() []docker.AuthConfiguration
 }
 
+type ErrImageNotAllowed struct {
+	msg string
+}
+
+func (e *ErrImageNotAllowed) Error() string { return e.msg }
+
+func NewErrImageNotAllowed(msg string) error {
+	return &ErrImageNotAllowed{
+		msg: msg,
+	}
+}
+
+// Clients may need to impose some restrictions on what images a task is
+// allowed to execute. If the image is not locally available, there is
+// a significant I/O cost to getting more information about the image, which is
+// why we have a 2 step process.
+type AllowImager interface {
+	// The configuration is the one that will be used for the pull.
+	// If the image is to be allowed without further checks, return nil.
+	// If enough information is not available from the repo, and the implementer
+	// requires that the image be pulled first, then AllowImage() be called
+	// again, return ErrNeedsInfo.
+	// Return any other error to disallow.
+	AllowImagePull(repo string, authConfig docker.AuthConfiguration) error
+
+	// Return error to reject, nil to allow.
+	//
+	// AllowImage() is called if the image already exists in the runner cache.
+	// Possible reasons to implement this is if the Tasker enforces per-task
+	// limits on image size or similar.  This gives reliable behavior
+	// irrespective of a cache hit or cache miss. To clarify, say TaskA and TaskB
+	// share the same image `foo/bar`. TaskA enforces a limit of 50MB, TaskB
+	// enforces 10MB, `foo/bar` is 20MB. If TaskA runs first, the image is now in
+	// the cache and TaskA is allowed to run. If TaskB is queued now, we need to
+	// perform a check with TaskB's limits.
+	//
+	// Docker seems to have a bug where the output of docker inspect does not
+	// always fill in the RepoTags argument. So we need to pass the original
+	// repository name separately.
+	AllowImage(repo string, info *docker.Image) error
+}
+
 type DockerDriver struct {
 	conf     *drivercommon.Config
 	docker   *docker.Client
@@ -234,28 +276,42 @@ func (drv *DockerDriver) removeContainer(container string) {
 	removeTimer.Measure()
 }
 
-func (drv *DockerDriver) pullImage(task drivers.ContainerTask) error {
+func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, error) {
 	configs := usableConfigs(task)
 	if len(configs) == 0 {
-		return fmt.Errorf("No AuthConfigurations specified! Did not attempt pull. Bad Auther implementation?")
+		return nil, fmt.Errorf("No AuthConfigurations specified! Did not attempt pull. Bad Auther implementation?")
 	}
 
-	repo, tag := docker.ParseRepositoryTag(task.Image())
+	log := logrus.WithFields(logrus.Fields{"task_id": task.Id(), "image": task.Image()})
+
+	repo, tag := normalizedImage(task.Image())
+	repoImage := fmt.Sprintf("%s:%s", repo, tag)
+
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
-	var err error
+	defer pullTimer.Measure()
+	// try all user creds until we get one that works
 	for i, config := range configs {
-		err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
-		// Don't leak config into logs! Go lookup array in user's credentials if user complains.
-		logrus.WithFields(logrus.Fields{"config_index": i, "username": config.Username, "err": err}).Info("Trying to pull image")
-		if err == nil {
-			// If a pull with a default AuthConfiguration works, we will insert that
-			// and the image will be considered publicly accessible.
-			drv.acceptedCredentials(task.Image(), config)
-			break
+		if allower, ok := task.(AllowImager); ok {
+			err := allower.AllowImagePull(repoImage, config)
+			if _, ok := err.(*ErrImageNotAllowed); ok { // TODO more all encompassing errors
+				// if we could authenticate but the image is simply too big, tell the user
+				return nil, err
+			} else if err != nil {
+				// Could be due to a login error, so we have to try them all :(
+				log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Error("Tried to verify size, continuing")
+				continue
+			}
 		}
+
+		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+		if err != nil {
+			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
+			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
+			continue
+		}
+		return drv.docker.InspectImage(repoImage)
 	}
-	pullTimer.Measure()
-	return err
+	return nil, errors.New("no credentials could successfully pull image")
 }
 
 func normalizedImage(image string) (string, string) {
@@ -334,12 +390,20 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
-	_, err := drv.docker.InspectImage(repoImage)
+
+	imageInfo, err := drv.docker.InspectImage(repoImage)
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
-		return drv.pullImage(task)
-	} else if err != nil {
-		return fmt.Errorf("something went wrong inspecting image: %v", err)
+		imageInfo, err = drv.pullImage(task)
+	}
+	if err != nil {
+		return fmt.Errorf("error getting image %v: %v", repoImage, err)
+	}
+
+	if allower, ok := task.(AllowImager); ok {
+		if err := allower.AllowImage(repoImage, imageInfo); err != nil {
+			return fmt.Errorf("task not allowed to use image: %v", err)
+		}
 	}
 
 	// Image is available locally. If the credentials presented by the tasks are
