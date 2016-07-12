@@ -355,26 +355,21 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 		}
 
 		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
-		if err != nil {
+		if err == docker.ErrConnectionRefused {
+			// If we couldn't connect to Docker, bail immediately.
+			return nil, titancommon.Errorf("docker.PullImage: %v", &dockerError{err})
+		} else if err != nil {
 			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
 			continue
-		} else if err == docker.ErrConnectionRefused {
-			// If we couldn't connect to Docker, bail immediately.
-			break
 		}
 		return drv.docker.InspectImage(repoImage)
 	}
-	// TODO: after rebasing, deal with docker error vs auth error if possible.
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, titancommon.Errorf("docker.PullImage: %v", titancommon.NewUserVisibleError(err, err))
-		}
-		return nil, titancommon.Errorf("docker.PullImage: %v", &dockerError{err})
-	}
 
-	// TODO: after rebasing, does not sound right.
-	return nil, nil
+	// It is possible that errors other than ErrConnectionRefused or "image not
+	// found" (also means auth failed) errors can occur. These should not be bubbled up.
+	err := fmt.Errorf("Could not find image %s. Image does not exist or authentication failed.", repo)
+	return nil, titancommon.Errorf("docker.PullImage: %v", titancommon.NewUserVisibleError(err, err))
 }
 
 func normalizedImage(image string) (string, string) {
