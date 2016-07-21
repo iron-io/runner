@@ -10,11 +10,21 @@ import (
 )
 
 type Driver interface {
-	// Run executes the task. If task runs, drivers.RunResult will be returned. If something fails outside the task (eg: Docker), it will return error.
+	// Run should execute task on the implementation.
+	// RunResult captures the result of task execution. This means if task
+	// execution fails due to a problem in the task, Run() MUST return a valid
+	// RunResult and nil as the error. The RunResult's Error() and Status()
+	// should be used to indicate failure.
+	// If the implementation itself suffers problems (lost of network, out of
+	// disk etc.), a nil RunResult and an error message is preferred.
+	//
+	// Run() MUST monitor the context. task cancellation is indicated by
+	// cancelling the context.
+	// In addition, Run() should respect the task's timeout.
 	Run(ctx context.Context, task ContainerTask) (RunResult, error)
 }
 
-// RunResult will provide methods to access the job completion status, logs, etc.
+// RunResult indicates only the final state of the task.
 type RunResult interface {
 	// RunResult implementations should do any cleanup in here. All fields should
 	// be considered invalid after Close() is called.
@@ -24,35 +34,38 @@ type RunResult interface {
 	Error() error
 
 	// Status should return the current status of the task.
-	// It must never return Enqueued.
+	// Only valid options are {"error", "success", "timeout", "killed", "cancelled"}.
 	Status() string
 }
 
+// The ContainerTask interface guides task execution across a wide variety of
+// container oriented runtimes.
+// This interface is unstable.
+//
+// FIXME: This interface is large, and it is currently a little Docker specific.
 type ContainerTask interface {
+	// Command returns the command to run within the container.
 	Command() string
-	Config() string
+	// EnvVars returns environment variable key-value pairs.
 	EnvVars() map[string]string
 	Id() string
+	// Image returns the runtime specific image to run.
 	Image() string
+	// Timeout is in seconds.
 	Timeout() uint
-	// Drivers should write output log to this writer. Must be non-nil. Use
-	// io.Discard if log is irrelevant.
+	// Driver will write output log from task execution to these writers. Must be
+	// non-nil. Use io.Discard if log is irrelevant.
 	Logger() (stdout, stderr io.Writer)
-	// Volumes may return an array of 2-element tuples, where the first element
-	// is the path on the host, and the second element is the path in the
-	// container. If at least one tuple is returned, the first tuple is set to
-	// the working directory for the execution.
-	//
-	// Example:
-	//   []string {
-	//     []string{ "/my/task/dir", "/mnt" }
-	//   }
+	// Volumes returns an array of 2-element tuples indicating storage volume mounts.
+	// The first element is the path on the host, and the second element is the
+	// path in the container.
 	Volumes() [][2]string
-	// return working directory to use in container. empty string
-	// will not set this and default to container defaults.
+	// WorkDir returns the working directory to use for the task. Empty string
+	// leaves it unset.
 	WorkDir() string
-	// Close should be safe to call multiple times. Any errors occurred
-	// during close should be logged from within.
+
+	// Close is used to perform cleanup after task execution.
+	// Close should be safe to call multiple times.
 	Close()
 }
 

@@ -48,28 +48,30 @@ func NewErrImageNotAllowed(msg string) error {
 // allowed to execute. If the image is not locally available, there is
 // a significant I/O cost to getting more information about the image, which is
 // why we have a 2 step process.
+// ContainerTask implementations can opt into this by implementing the
+// AllowImager interface.
 type AllowImager interface {
-	// The configuration is the one that will be used for the pull.
-	// If the image is to be allowed without further checks, return nil.
-	// If enough information is not available from the repo, and the implementer
-	// requires that the image be pulled first, then AllowImage() be called
-	// again, return ErrNeedsInfo.
-	// Return any other error to disallow.
+	// AllowImagePull controls whether pulling this particular image is allowed.
+	// - If the image pull is to be allowed return nil.
+	// - If the image can be accessed, but the pull is not allowed, return
+	//   ErrImageNotAllowed.
+	// - If the image could not be accessed, or some other reason, return some
+	//   other error.
 	AllowImagePull(repo string, authConfig docker.AuthConfiguration) error
 
-	// Return error to reject, nil to allow.
-	//
-	// AllowImage() is called if the image already exists in the runner cache.
-	// Possible reasons to implement this is if the Tasker enforces per-task
-	// limits on image size or similar.  This gives reliable behavior
-	// irrespective of a cache hit or cache miss. To clarify, say TaskA and TaskB
-	// share the same image `foo/bar`. TaskA enforces a limit of 50MB, TaskB
-	// enforces 10MB, `foo/bar` is 20MB. If TaskA runs first, the image is now in
-	// the cache and TaskA is allowed to run. If TaskB is queued now, we need to
-	// perform a check with TaskB's limits.
+	// AllowImage is always called before running a task.
+	// This may be used to implement restrictions on execution of certain images.
+	// Checks implemented here should be a superset of checks in AllowImagePull
+	// to ensure reliable behavior.
+	// To clarify, say TaskA and TaskB share the same image `foo/bar`. TaskA
+	// enforces a limit of 50MB, TaskB enforces 10MB, `foo/bar` is 20MB. If TaskA
+	// runs first, AllowImagePull for TaskA returns nil,  image is now in the
+	// cache and TaskA is allowed to run. If TaskB is queued now, we need to
+	// perform a check with TaskB's limits, even though AllowImagePull will not
+	// be called for TaskB.
 	//
 	// Docker seems to have a bug where the output of docker inspect does not
-	// always fill in the RepoTags argument. So we need to pass the original
+	// always fill in the RepoTags argument. So we pass the original
 	// repository name separately.
 	AllowImage(repo string, info *docker.Image) error
 }
@@ -293,7 +295,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 	for i, config := range configs {
 		if allower, ok := task.(AllowImager); ok {
 			err := allower.AllowImagePull(repoImage, config)
-			if _, ok := err.(*ErrImageNotAllowed); ok { // TODO more all encompassing errors
+			if _, ok := err.(*ErrImageNotAllowed); ok {
 				// if we could authenticate but the image is simply too big, tell the user
 				return nil, err
 			} else if err != nil {
