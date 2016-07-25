@@ -120,7 +120,7 @@ func init() {
 		runnerConfig.Concurrency = concurrency
 	}
 
-	runnerConfig.InstanceId = viper.GetString("instance_id")
+	runnerConfig.InstanceID = viper.GetString("instance_id")
 
 	apiURL = viper.GetString("api_url")
 	titancommon.SetLogLevel(viper.GetString("log_level"))
