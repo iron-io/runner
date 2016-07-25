@@ -49,6 +49,7 @@ import (
 // - driver
 // - concurrency
 // - memory_per_job
+// - instance_id
 //
 // configloader will terminate if any configuration does not match valid values.
 // For this reason, it should only be used from a binary's main().
@@ -118,6 +119,8 @@ func init() {
 	if concurrency := viper.GetInt("concurrency"); concurrency > 0 {
 		runnerConfig.Concurrency = concurrency
 	}
+
+	runnerConfig.InstanceId = viper.GetString("instance_id")
 
 	apiURL = viper.GetString("api_url")
 	titancommon.SetLogLevel(viper.GetString("log_level"))
