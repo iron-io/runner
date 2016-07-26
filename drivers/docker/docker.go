@@ -119,6 +119,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, err
 	}
+	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
 	defer drv.removeContainer(container)
 
 	t := drv.conf.DefaultTimeout
@@ -142,6 +143,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	// the container stops, leaving the runner stuck. We use a non-blocking
 	// attach so we can sleep a bit after WaitContainer returns and then forcibly
 	// close the connection.
+	timer := drv.NewTimer("docker", "attach_container", 1)
 	closer, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
 		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
@@ -149,9 +151,11 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, fmt.Errorf("attach to container: %v", err)
 	}
+	timer.Measure()
 
 	// It's possible the execution could be finished here, then what? http://docs.docker.com.s3-website-us-east-1.amazonaws.com/engine/reference/api/docker_remote_api_v1.20/#wait-a-container
 	exitCode, err := drv.docker.WaitContainer(container)
+	taskTimer.Measure()
 	time.Sleep(10 * time.Millisecond)
 	if err != nil {
 		return nil, fmt.Errorf("wait container: %v", err)

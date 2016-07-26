@@ -1,7 +1,9 @@
 package stats
 
 import (
-	"gopkg.in/inconshreveable/log15.v2"
+	"time"
+
+	"github.com/Sirupsen/logrus"
 )
 
 type Log15Reporter struct {
@@ -13,18 +15,17 @@ func NewLog15Reporter() *Log15Reporter {
 
 func (lr *Log15Reporter) report(stats []*collectedStat) {
 	for _, s := range stats {
-		var i []interface{}
-
+		f := make(logrus.Fields)
 		for k, v := range s.Counters {
-			i = append(i, k, v)
+			f[k] = v
 		}
 		for k, v := range s.Values {
-			i = append(i, k, v)
+			f[k] = v
 		}
 		for k, v := range s.Timers {
-			i = append(i, k, v)
+			f[k] = time.Duration(v)
 		}
 
-		log15.Info(s.Name, i...)
+		logrus.WithFields(f).Info(s.Name)
 	}
 }

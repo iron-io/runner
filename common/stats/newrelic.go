@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/inconshreveable/log15.v2"
+	"github.com/Sirupsen/logrus"
 )
 
 type NewRelicAgentConfig struct {
@@ -66,7 +66,7 @@ func (r *NewRelicReporter) report(stats []*collectedStat) {
 
 	metricsJson, err := json.Marshal(req)
 	if err != nil {
-		log15.Error("error encoding json for NewRelicReporter", "err", err)
+		logrus.WithError(err).Error("error encoding json for NewRelicReporter")
 	}
 
 	jsonAsString := string(metricsJson)
@@ -75,7 +75,7 @@ func (r *NewRelicReporter) report(stats []*collectedStat) {
 		"https://platform-api.newrelic.com/platform/v1/metrics",
 		strings.NewReader(jsonAsString))
 	if err != nil {
-		log15.Error("error creating New Relic request:", "err", err)
+		logrus.WithError(err).Error("error creating New Relic request")
 		return
 	}
 	httpRequest.Header.Set("X-License-Key", r.LicenseKey)
@@ -83,15 +83,15 @@ func (r *NewRelicReporter) report(stats []*collectedStat) {
 	httpRequest.Header.Set("Accept", "application/json")
 	httpResponse, err := client.Do(httpRequest)
 	if err != nil {
-		log15.Error("error sending http request in NewRelicReporter", "err", err)
+		logrus.WithError(err).Error("error sending http request in NewRelicReporter")
 		return
 	}
 	defer httpResponse.Body.Close()
 	body, err := ioutil.ReadAll(httpResponse.Body)
 	if err != nil {
-		log15.Error("error reading response body", "err", err)
+		logrus.WithError(err).Error("error reading response body")
 	} else {
-		log15.Debug("response", "code", httpResponse.Status, "body", string(body))
+		logrus.Debugln("response", "code", httpResponse.Status, "body", string(body))
 	}
 }
 
@@ -108,7 +108,7 @@ func newNewRelicAgent(Version string) *agent {
 	}
 	agent.Pid = os.Getpid()
 	if agent.Host, err = os.Hostname(); err != nil {
-		log15.Error("Can not get hostname", "err", err)
+		logrus.WithError(err).Error("Can not get hostname")
 		return nil
 	}
 	return agent

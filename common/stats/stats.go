@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/inconshreveable/log15.v2"
+	"github.com/Sirupsen/logrus"
 )
 
 type HTTPSubHandler interface {
@@ -18,7 +18,7 @@ type Config struct {
 	Interval float64 `json:"interval"` // seconds
 	History  int     // minutes
 
-	Log15    []string `json:"log15"`
+	Log15    []string `json:"log"`
 	StatHat  *StatHatReporterConfig
 	NewRelic *NewRelicReporterConfig
 	Statsd   *StatsdConfig
@@ -71,7 +71,7 @@ func New(config Config) Statter {
 	s := new(MultiStatter)
 
 	if config.Interval == 0.0 {
-		config.Interval = 60.0 // convenience
+		config.Interval = 10.0 // convenience
 	}
 
 	var reporters []reporter
@@ -104,7 +104,7 @@ func New(config Config) Statter {
 		if err == nil {
 			s.statters = append(s.statters, std)
 		} else {
-			log15.Error("Couldn't create statsd reporter", "err", err)
+			logrus.WithError(err).Error("Couldn't create statsd reporter")
 		}
 	}
 

@@ -113,11 +113,20 @@ func (a *Aggregator) add(component, key string, kind kind, value interface{}) {
 		}
 
 		stat.vl.Lock()
-		oldAverage := stat.s.Values[key]
-		count := stat.s.avgCounts[key]
-		newAverage := (oldAverage*float64(count) + float64(typedValue)) / (float64(count + 1))
-		stat.s.avgCounts[key] = count + 1
-		stat.s.Values[key] = newAverage
+		switch kind {
+		case valueKind:
+			oldAverage := stat.s.Values[key]
+			count := stat.s.avgCounts[key]
+			newAverage := (oldAverage*float64(count) + float64(typedValue)) / (float64(count + 1))
+			stat.s.avgCounts[key] = count + 1
+			stat.s.Values[key] = newAverage
+		case durationKind:
+			oldAverage := float64(stat.s.Timers[key])
+			count := stat.s.avgCounts[key]
+			newAverage := (oldAverage*float64(count) + float64(typedValue)) / (float64(count + 1))
+			stat.s.avgCounts[key] = count + 1
+			stat.s.Timers[key] = time.Duration(newAverage)
+		}
 		stat.vl.Unlock()
 	}
 }
