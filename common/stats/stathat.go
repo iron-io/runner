@@ -1,10 +1,11 @@
 package stats
 
 import (
-	"gopkg.in/inconshreveable/log15.v2"
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"github.com/Sirupsen/logrus"
 )
 
 func postStatHat(key, stat string, values url.Values) {
@@ -12,11 +13,11 @@ func postStatHat(key, stat string, values url.Values) {
 	values.Set("ezkey", key)
 	resp, err := http.PostForm("http://api.stathat.com/ez", values)
 	if err != nil {
-		log15.Error("couldn't post to StatHat", "err", err)
+		logrus.WithError(err).Error("couldn't post to StatHat")
 		return
 	}
 	if resp.StatusCode != 200 {
-		log15.Error("bad status posting to StatHat", "status_code", resp.StatusCode)
+		logrus.Errorln("bad status posting to StatHat", "status_code", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/amir/raidman"
-	"gopkg.in/inconshreveable/log15.v2"
 )
 
 type RiemannClient struct {
@@ -58,7 +58,7 @@ func (rc *RiemannClient) Add(s *Stat) {
 func (rc *RiemannClient) report(events []*raidman.Event) {
 	err := rc.client.SendMulti(events)
 	if err != nil {
-		log15.Crit("error sending to Riemann", "err", err)
+		logrus.WithError(err).Error("error sending to Riemann")
 	}
 }
 
@@ -79,7 +79,7 @@ func (rc *RiemannClient) heartbeat() {
 func newRiemann(config Config) *RiemannClient {
 	c, err := raidman.Dial("tcp", config.Riemann.RiemannHost)
 	if err != nil {
-		log15.Crit("error dialing Riemann", "err", err)
+		logrus.WithError(err).Error("error dialing Riemann")
 		os.Exit(1)
 	}
 
