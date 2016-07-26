@@ -7,6 +7,6 @@ set -ex
 docker daemon \
 		--host=unix:///var/run/docker.sock \
 		--host=tcp://0.0.0.0:2375 \
-		--storage-driver=$(grep -Eh -w -m1 "overlay|aufs" /proc/filesystems | cut -f2) &
+		--storage-driver=$(grep -Eh -w -m1 "btrfs|overlay|aufs" /proc/filesystems | cut -f2) &
 
 exec "$@"
