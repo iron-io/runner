@@ -37,7 +37,8 @@ type ErrImageNotAllowed struct {
 	msg string
 }
 
-func (e *ErrImageNotAllowed) Error() string { return e.msg }
+func (e *ErrImageNotAllowed) Error() string    { return e.msg }
+func (e *ErrImageNotAllowed) UserError() error { return fmt.Errorf(e.msg) }
 
 func NewErrImageNotAllowed(msg string) error {
 	return &ErrImageNotAllowed{
@@ -86,11 +87,7 @@ type BeforeStarter interface {
 // Certain Docker errors are unrecoverable in the sense that the daemon is
 // having problems and this driver can no longer continue.
 type dockerError struct {
-	err error
-}
-
-func (d *dockerError) Error() string {
-	return d.err.Error()
+	error
 }
 
 func (d *dockerError) Unrecoverable() bool {
@@ -98,11 +95,11 @@ func (d *dockerError) Unrecoverable() bool {
 	// this.  All network errors are considered unrecoverable since we are only
 	// talking with the local Docker daemon here, so the likely cause is that
 	// Docker is non-responsive.
-	if _, ok := d.err.(net.Error); ok {
+	if _, ok := d.error.(net.Error); ok {
 		return true
 	}
 
-	return d.err == docker.ErrConnectionRefused
+	return d.error == docker.ErrConnectionRefused
 }
 
 type DockerDriver struct {
@@ -369,7 +366,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 
 	// It is possible that errors other than ErrConnectionRefused or "image not
 	// found" (also means auth failed) errors can occur. These should not be bubbled up.
-	err := fmt.Errorf("Could not find image %s. Image does not exist or authentication failed.", repo)
+	err := fmt.Errorf("Image '%s' does not exist or authentication failed.", repo)
 	return nil, agent.NewUserVisibleError(err, err)
 }
 
@@ -511,7 +508,9 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 		drv.acceptedCredentials(task.Image(), config)
 		return nil
 	}
-	return fmt.Errorf("task not authorized to use image %s: %v", task.Image(), err)
+
+	err = fmt.Errorf("Image '%s' does not exist or authentication failed.", repo)
+	return agent.NewUserVisibleError(err, err)
 }
 
 // Only support HTTPS accessible registries for now.
