@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -251,7 +250,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	log := logrus.WithFields(logrus.Fields{"image": task.Image()}) // todo: add context fields here, job id, etc.
 
 	if task.Image() == "" {
-		return "", errors.New("no image specified")
+		return "", fmt.Errorf("no image specified")
 	}
 
 	var cmd []string
@@ -460,7 +459,7 @@ func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
 
 	if allower, ok := task.(AllowImager); ok {
 		if err := allower.AllowImage(repoImage, imageInfo); err != nil {
-			return fmt.Errorf("task not allowed to use image: %v", err)
+			return err
 		}
 	}
 
