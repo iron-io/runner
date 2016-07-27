@@ -15,6 +15,7 @@ import (
 	"github.com/fsouza/go-dockerclient"
 	"github.com/heroku/docker-registry-client/registry"
 	titancommon "github.com/iron-io/titan/common"
+	"github.com/iron-io/titan/runner/agent"
 	"github.com/iron-io/titan/runner/drivers"
 	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"golang.org/x/net/context"
@@ -188,7 +189,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
 	defer closer.Close()
 	if err != nil {
-		return nil, titancommon.Errorf("attach to container: %v", &dockerError{err})
+		return nil, &dockerError{err}
 	}
 	timer.Measure()
 
@@ -197,7 +198,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	taskTimer.Measure()
 	time.Sleep(10 * time.Millisecond)
 	if err != nil {
-		return nil, titancommon.Errorf("wait container: %v", &dockerError{err})
+		return nil, &dockerError{err}
 	}
 
 	status, err := drv.status(container, exitCode, sentence)
@@ -218,7 +219,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	// TODO: Need a way to call down into docker, read the return error, compare it against Unrecoverable error and stop, otherwise continue, while still being able to add context to errors.
 	cID, err := drv.createContainer(task)
 	if err != nil {
-		return "", titancommon.Errorf("createContainer: %v", err)
+		return "", err
 	}
 
 	removeContainer := func() {
@@ -244,7 +245,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		// Remove the created container since we couldn't start it.
 		removeContainer()
 		drv.Inc("docker", "container_start_error", 1, 1.0)
-		return "", titancommon.Errorf("docker.StartContainer: %v", &dockerError{err})
+		return "", &dockerError{err}
 	}
 	return cID, nil
 }
@@ -304,7 +305,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 
 	err := drv.ensureUsableImage(task)
 	if err != nil {
-		return "", titancommon.Errorf("ensureUsableImage: %v", err)
+		return "", err
 	}
 
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
@@ -313,7 +314,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 	if err != nil {
 		logDockerContainerConfig(log, container)
 		drv.Inc("docker", "container_create_error", 1, 1.0)
-		return "", titancommon.Errorf("docker.CreateContainer: %v", &dockerError{err})
+		return "", &dockerError{err}
 	}
 
 	return c.ID, nil
@@ -357,7 +358,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
 		if err == docker.ErrConnectionRefused {
 			// If we couldn't connect to Docker, bail immediately.
-			return nil, titancommon.Errorf("docker.PullImage: %v", &dockerError{err})
+			return nil, &dockerError{err}
 		} else if err != nil {
 			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
@@ -369,7 +370,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 	// It is possible that errors other than ErrConnectionRefused or "image not
 	// found" (also means auth failed) errors can occur. These should not be bubbled up.
 	err := fmt.Errorf("Could not find image %s. Image does not exist or authentication failed.", repo)
-	return nil, titancommon.Errorf("docker.PullImage: %v", titancommon.NewUserVisibleError(err, err))
+	return nil, agent.NewUserVisibleError(err, err)
 }
 
 func normalizedImage(image string) (string, string) {
@@ -453,8 +454,11 @@ func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
 		imageInfo, err = drv.pullImage(task)
+		if err != nil {
+			return err
+		}
 	} else if err != nil {
-		return titancommon.Errorf("something went wrong inspecting image: %v", &dockerError{err})
+		return &dockerError{err}
 	}
 
 	if allower, ok := task.(AllowImager); ok {
@@ -575,11 +579,7 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
 
 				d := &dockerError{inspectErr}
-				if _, ok := inspectErr.(*docker.NoSuchContainer); ok {
-					return nil, d
-				} else if d.Unrecoverable() {
-					return nil, titancommon.Errorf("inspecting container to check for OOM: %v", d)
-				}
+				return nil, d
 			} else {
 				if !cinfo.State.OOMKilled {
 					// It is possible that the host itself is running out of memory and
