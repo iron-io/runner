@@ -119,8 +119,19 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, err
 	}
+
+	removeContainer := func() {
+		drv.removeContainer(container)
+	}
+	// We're going to steal removeContainer and put it in runResult if everything goes
+	// smoothly. This lets us remove the container after updating task status.
+	defer func() {
+		if removeContainer != nil {
+			removeContainer()
+		}
+	}()
+
 	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
-	defer drv.removeContainer(container)
 
 	t := drv.conf.DefaultTimeout
 	if n := task.Timeout(); n != 0 {
@@ -166,10 +177,13 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	// TODO: Check stdout/stderr for driver-specific errors like OOM.
 
 	// the err returned above is an error from running user code, so we don't return it from this method.
-	return &runResult{
+	r := &runResult{
 		StatusValue: status,
 		Err:         err,
-	}, nil
+		closer:      removeContainer,
+	}
+	removeContainer = nil
+	return r, nil
 }
 
 func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
