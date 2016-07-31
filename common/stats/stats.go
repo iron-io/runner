@@ -15,14 +15,14 @@ type HTTPSubHandler interface {
 }
 
 type Config struct {
-	Interval float64 `json:"interval"` // seconds
+	Interval float64 `json:"interval" envconfig:"STATS_INTERVAL"` // seconds
 	History  int     // minutes
 
-	Log15    []string `json:"log"`
+	Log      string `json:"log" envconfig:"STATS_LOG"`
 	StatHat  *StatHatReporterConfig
 	NewRelic *NewRelicReporterConfig
 	Statsd   *StatsdConfig
-	GCStats  int `json:"gc_stats"` // seconds
+	GCStats  int `json:"gc_stats" envconfig:"GC_STATS"` // seconds
 }
 
 type Statter interface {
@@ -85,8 +85,8 @@ func New(config Config) Statter {
 		reporters = append(reporters, NewNewRelicReporter("1.0", config.NewRelic.LicenseKey))
 	}
 
-	if config.Log15 != nil {
-		reporters = append(reporters, NewLog15Reporter())
+	if config.Log != "" {
+		reporters = append(reporters, NewLogReporter())
 	}
 
 	if len(reporters) > 0 {

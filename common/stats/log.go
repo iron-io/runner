@@ -6,14 +6,14 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
-type Log15Reporter struct {
+type LogReporter struct {
 }
 
-func NewLog15Reporter() *Log15Reporter {
-	return (&Log15Reporter{})
+func NewLogReporter() *LogReporter {
+	return (&LogReporter{})
 }
 
-func (lr *Log15Reporter) report(stats []*collectedStat) {
+func (lr *LogReporter) report(stats []*collectedStat) {
 	for _, s := range stats {
 		f := make(logrus.Fields)
 		for k, v := range s.Counters {

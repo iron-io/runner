@@ -85,3 +85,20 @@ const (
 	StatusKilled    = "killed"
 	StatusCancelled = "cancelled"
 )
+
+type Config struct {
+	Docker         string `json:"docker" envconfig:"default=unix:///var/run/docker.sock,DOCKER"`
+	Memory         uint64 `json:"memory" envconfig:"-"` // TODO uses outer now
+	CPUShares      int64  `json:"cpu_shares" envconfig:"default=2,CPU_SHARES"`
+	DefaultTimeout uint   `json:"timeout" envconfig:"default=3600,TASK_TIMEOUT"`
+}
+
+// for tests
+func DefaultConfig() Config {
+	return Config{
+		Docker:         "unix:///var/run/docker.sock",
+		Memory:         256 * 1024 * 1024,
+		CPUShares:      0,
+		DefaultTimeout: 3600,
+	}
+}

@@ -16,7 +16,6 @@ import (
 	titancommon "github.com/iron-io/titan/common"
 	"github.com/iron-io/titan/runner/agent"
 	"github.com/iron-io/titan/runner/drivers"
-	drivercommon "github.com/iron-io/titan/runner/drivers/common"
 	"golang.org/x/net/context"
 )
 
@@ -109,8 +108,29 @@ func (d *dockerError) Unrecoverable() bool {
 func (d *dockerError) UserVisible() bool { return agent.IsUserVisibleError(d.error) }
 func (d *dockerError) UserError() error  { return d.error.(agent.UserVisibleError).UserError() }
 
+type runResult struct {
+	Err         error
+	StatusValue string
+	closer      func()
+}
+
+func (runResult *runResult) Error() error {
+	return runResult.Err
+}
+
+func (runResult *runResult) Status() string {
+	return runResult.StatusValue
+}
+
+func (runResult *runResult) Close() error {
+	if runResult.closer != nil {
+		runResult.closer()
+	}
+	return nil
+}
+
 type DockerDriver struct {
-	conf     *drivercommon.Config
+	conf     drivers.Config
 	docker   *docker.Client
 	hostname string
 
@@ -124,7 +144,7 @@ type DockerDriver struct {
 	*titancommon.Environment
 }
 
-func NewDocker(env *titancommon.Environment, conf *drivercommon.Config) *DockerDriver {
+func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't resolve hostname")
@@ -171,7 +191,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		t = n
 	}
 	if t == 0 {
-		t = drivercommon.DefaultConfig().DefaultTimeout
+		t = 3600 // TODO we really should panic, or reconsider how this gets here
 		logrus.WithFields(logrus.Fields{"task_id": task.Id()}).Warn("Task timeout or runner configuration was set to zero, using default")
 	}
 	// TODO: make sure tasks don't have excessive timeouts? 24h?

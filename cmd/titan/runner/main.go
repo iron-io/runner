@@ -5,8 +5,9 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/iron-io/titan/common"
+	"github.com/iron-io/titan/common/stats"
 	"github.com/iron-io/titan/runner/agent"
-	"github.com/iron-io/titan/runner/configloader"
+	"github.com/iron-io/titan/runner/config"
 	"github.com/iron-io/titan/runner/drivers"
 	"github.com/iron-io/titan/runner/drivers/docker"
 	"github.com/iron-io/titan/runner/drivers/mock"
@@ -14,19 +15,29 @@ import (
 	"golang.org/x/net/context"
 )
 
+type Config struct {
+	Stats stats.Config `json:"stats"`
+
+	config.Config
+}
+
 func main() {
 	ctx := agent.BaseContext(context.Background())
 
-	runnerConfig := configloader.RunnerConfiguration()
+	var conf Config
+	config.Load(&conf)
+
+	runnerConfig := conf.RunnerConfig
 	au := agent.ConfigAuth{runnerConfig.Registries}
 
 	// TODO: can we just ditch environment here since we have a global Runner object now?
-	env := common.NewEnvironment(func(e *common.Environment) {
-		// Put stats initialization based off config over here.
+	// +1
+	env := common.NewEnvironment(func(env *common.Environment) {
+		env.Statter = stats.New(conf.Stats)
 	})
 
 	// Create
-	tasker := tasker.New(configloader.ApiURL(), logrus.WithFields(logrus.Fields{}), &au)
+	tasker := tasker.New(conf.ApiURL, logrus.WithFields(logrus.Fields{}), &au)
 	driver, err := selectDriver(env, runnerConfig)
 	if err != nil {
 		logrus.WithError(err).Fatal("error selecting container driver")
@@ -36,7 +47,7 @@ func main() {
 	runner.Run(ctx)
 }
 
-func selectDriver(env *common.Environment, conf *agent.Config) (drivers.Driver, error) {
+func selectDriver(env *common.Environment, conf agent.Config) (drivers.Driver, error) {
 	switch conf.Driver {
 	case "docker":
 		docker := docker.NewDocker(env, conf.DriverConfig)
