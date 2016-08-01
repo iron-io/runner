@@ -567,7 +567,7 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string, task drive
 	}
 }
 
-func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan string) (*runResult, error) {
+func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan string) (string, error) {
 	var status string
 	var err error
 	select {
@@ -584,7 +584,7 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
 
 				d := &dockerError{inspectErr}
-				return nil, d
+				logrus.WithFields(logrus.Fields{"container": container}).WithError(d).Error("Inspecting container for OOM check")
 			} else {
 				if !cinfo.State.OOMKilled {
 					// It is possible that the host itself is running out of memory and
@@ -603,7 +603,7 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 			err = fmt.Errorf("exit code %d", exitCode)
 		}
 	}
-	return &runResult{StatusValue: status, Err: err}, nil
+	return status, err
 }
 
 // TODO we _sure_ it's dead?
