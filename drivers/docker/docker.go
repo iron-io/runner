@@ -76,6 +76,12 @@ type AllowImager interface {
 	AllowImage(repo string, info *docker.Image) error
 }
 
+type BeforeStarter interface {
+	// BeforeStart is called just before execution of the container is started.
+	// Returning an error will abort execution and fail the task.
+	BeforeStart() error
+}
+
 type DockerDriver struct {
 	conf     *drivercommon.Config
 	docker   *docker.Client
@@ -193,15 +199,28 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		return "", fmt.Errorf("createContainer: %v", err)
 	}
 
+	removeContainer := func() {
+		if cID != "" {
+			drv.removeContainer(cID)
+		}
+	}
+
+	if bs, ok := task.(BeforeStarter); ok {
+		err := bs.BeforeStart()
+		if err != nil {
+			removeContainer()
+			drv.Inc("docker", "container_prestart_error", 1, 1.0)
+			return "", fmt.Errorf("task errored in PreStart: %v", err)
+		}
+	}
+
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
 	logrus.WithFields(logrus.Fields{"task_id": task.Id(), "container": cID}).Info("Starting container execution")
 	err = drv.docker.StartContainer(cID, nil)
 	startTimer.Measure()
 	if err != nil {
-		if cID != "" {
-			// Remove the created container since we couldn't start it.
-			defer drv.removeContainer(cID)
-		}
+		// Remove the created container since we couldn't start it.
+		removeContainer()
 		drv.Inc("docker", "container_start_error", 1, 1.0)
 		return "", fmt.Errorf("docker.StartContainer: %v", err)
 	}
