@@ -106,6 +106,9 @@ func (d *dockerError) Unrecoverable() bool {
 	return d.error == docker.ErrConnectionRefused
 }
 
+func (d *dockerError) UserVisible() bool { return agent.IsUserVisibleError(d.error) }
+func (d *dockerError) UserError() error  { return d.error.(agent.UserVisibleError).UserError() }
+
 type DockerDriver struct {
 	conf     *drivercommon.Config
 	docker   *docker.Client
