@@ -90,6 +90,11 @@ type dockerError struct {
 }
 
 func (d *dockerError) Unrecoverable() bool {
+	// Allow nests so we don't have to reason about the error tree.
+	if sub, ok := d.error.(*dockerError); ok {
+		return sub.Unrecoverable()
+	}
+
 	// Since go1.6, url.Error satisfies net.Error, so we can trap both using
 	// this.  All network errors are considered unrecoverable since we are only
 	// talking with the local Docker daemon here, so the likely cause is that
@@ -366,7 +371,7 @@ func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, e
 	// It is possible that errors other than ErrConnectionRefused or "image not
 	// found" (also means auth failed) errors can occur. These should not be bubbled up.
 	err := fmt.Errorf("Image '%s' does not exist or authentication failed.", repo)
-	return nil, agent.NewUserVisibleError(err, err)
+	return nil, agent.UserError(err, err)
 }
 
 func normalizedImage(image string) (string, string) {
@@ -450,10 +455,9 @@ func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
 		imageInfo, err = drv.pullImage(task)
-		if err != nil {
-			return err
-		}
-	} else if err != nil {
+	}
+
+	if err != nil {
 		return &dockerError{err}
 	}
 
@@ -509,7 +513,7 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 	}
 
 	err = fmt.Errorf("Image '%s' does not exist or authentication failed.", repo)
-	return agent.NewUserVisibleError(err, err)
+	return agent.UserError(err, err)
 }
 
 // Only support HTTPS accessible registries for now.
