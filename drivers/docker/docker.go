@@ -237,7 +237,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 		if err != nil {
 			removeContainer()
 			drv.Inc("docker", "container_prestart_error", 1, 1.0)
-			return "", fmt.Errorf("task errored in PreStart: %v", err)
+			return "", err
 		}
 	}
 
