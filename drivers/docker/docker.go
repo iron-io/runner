@@ -160,7 +160,8 @@ func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
 // The docker driver will attempt to cast the task to a Auther. If that succeeds, private image support is available. See the Auther interface for how to implement this.
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
-	container, err := drv.startTask(task)
+	log := titancommon.Logger(ctx)
+	container, err := drv.startTask(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +185,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}
 	if t == 0 {
 		t = 3600 // TODO we really should panic, or reconsider how this gets here
-		logrus.WithFields(logrus.Fields{"task_id": task.Id()}).Warn("Task timeout or runner configuration was set to zero, using default")
+		log.Warn("Task timeout or runner configuration was set to zero, using default")
 	}
 	// TODO: make sure tasks don't have excessive timeouts? 24h?
 	// TODO: record task timeout values so we can get a good idea of what people generally set it to.
@@ -217,7 +218,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		return nil, &dockerError{err}
 	}
 
-	status, err := drv.status(container, exitCode, sentence)
+	status, err := drv.status(ctx, container, exitCode, sentence)
 
 	// TODO: Check stdout/stderr for driver-specific errors like OOM.
 
@@ -231,9 +232,10 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	return r, nil
 }
 
-func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string, err error) {
+func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTask) (dockerId string, err error) {
+	log := titancommon.Logger(ctx)
 	// TODO: Need a way to call down into docker, read the return error, compare it against Unrecoverable error and stop, otherwise continue, while still being able to add context to errors.
-	cID, err := drv.createContainer(task)
+	cID, err := drv.createContainer(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -254,7 +256,7 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	}
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
-	logrus.WithFields(logrus.Fields{"task_id": task.Id(), "container": cID}).Info("Starting container execution")
+	log.WithFields(logrus.Fields{"container": cID}).Info("Starting container execution")
 	err = drv.docker.StartContainer(cID, nil)
 	startTimer.Measure()
 	if err != nil {
@@ -266,13 +268,12 @@ func (drv *DockerDriver) startTask(task drivers.ContainerTask) (dockerId string,
 	return cID, nil
 }
 
-func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, error) {
-	log := logrus.WithFields(logrus.Fields{"image": task.Image()}) // todo: add context fields here, job id, etc.
-
+func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.ContainerTask) (string, error) {
 	if task.Image() == "" {
 		return "", fmt.Errorf("no image specified")
 	}
 
+	log := titancommon.Logger(ctx)
 	var cmd []string
 	if task.Command() != "" {
 		// TODO We may have to move the sh part out to swapi tasker so it can decide between sh-ing .runtask directly vs using the -c form with a command.
@@ -319,7 +320,7 @@ func (drv *DockerDriver) createContainer(task drivers.ContainerTask) (string, er
 		container.Config.WorkingDir = wd
 	}
 
-	err := drv.ensureUsableImage(task)
+	err := drv.ensureUsableImage(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -344,13 +345,13 @@ func (drv *DockerDriver) removeContainer(container string) {
 	removeTimer.Measure()
 }
 
-func (drv *DockerDriver) pullImage(task drivers.ContainerTask) (*docker.Image, error) {
+func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTask) (*docker.Image, error) {
 	configs := usableConfigs(task)
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("No AuthConfigurations specified! Did not attempt pull. Bad Auther implementation?")
 	}
 
-	log := logrus.WithFields(logrus.Fields{"task_id": task.Id(), "image": task.Image()})
+	log := titancommon.Logger(ctx)
 
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
@@ -404,8 +405,8 @@ func normalizedImage(image string) (string, string) {
 
 // Empty arrays cannot use any image; use a single element default AuthConfiguration for public.
 // Returns true if any of the configs presented exist in the cached configs.
-func (drv *DockerDriver) allowedToUseImage(image string, configs []docker.AuthConfiguration) bool {
-	log := logrus.WithFields(logrus.Fields{"image": image})
+func (drv *DockerDriver) allowedToUseImage(ctx context.Context, image string, configs []docker.AuthConfiguration) bool {
+	log := titancommon.Logger(ctx)
 	// Tags are not part of the permission model.
 	key, _ := normalizedImage(image)
 	drv.authCacheLock.RLock()
@@ -462,14 +463,14 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 	return configs
 }
 
-func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
+func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 
 	imageInfo, err := drv.docker.InspectImage(repoImage)
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
-		imageInfo, err = drv.pullImage(task)
+		imageInfo, err = drv.pullImage(ctx, task)
 	}
 
 	if err != nil {
@@ -485,20 +486,22 @@ func (drv *DockerDriver) ensureUsableImage(task drivers.ContainerTask) error {
 	// Image is available locally. If the credentials presented by the tasks are
 	// known to be good for this image, allow it, otherwise check with registry.
 	configs := usableConfigs(task)
-	if drv.allowedToUseImage(repoImage, configs) {
+	if drv.allowedToUseImage(ctx, repoImage, configs) {
 		return nil
 	}
 
-	return drv.checkAgainstRegistry(task, configs)
+	return drv.checkAgainstRegistry(ctx, task, configs)
 }
 
-func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, configs []docker.AuthConfiguration) error {
+func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.ContainerTask, configs []docker.AuthConfiguration) error {
+	log := titancommon.Logger(ctx)
+
 	// We need to be able to support multiple registries, so just reconnect
 	// each time (hope to not do this often actually, as this is mostly to
 	// prevent abuse).
 	// It may be worth optimising in the future to have a dedicated HTTP client for Docker Hub.
 	drv.Inc("docker", "hit_registry_for_auth_check", 1, 1.0)
-	logrus.WithFields(logrus.Fields{"task_id": task.Id()}).Info("Hitting registry to check image access permission.")
+	log.Info("Hitting registry to check image access permission.")
 
 	var regClient *registry.Registry
 	var err error
@@ -519,7 +522,7 @@ func (drv *DockerDriver) checkAgainstRegistry(task drivers.ContainerTask, config
 				continue
 			}
 
-			logrus.WithFields(logrus.Fields{"config_index": i}).WithError(err).Error("Error retrieving manifest")
+			log.WithFields(logrus.Fields{"config_index": i}).WithError(err).Error("Error retrieving manifest")
 			break
 		}
 
@@ -579,9 +582,13 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string, task drive
 	}
 }
 
-func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan string) (string, error) {
-	var status string
-	var err error
+func (drv *DockerDriver) status(ctx context.Context, container string, exitCode int, sentence <-chan string) (string, error) {
+	var (
+		status string
+		err    error
+
+		log = titancommon.Logger(ctx)
+	)
 	select {
 	case status = <-sentence: // use this if timed out
 	default:
@@ -596,13 +603,13 @@ func (drv *DockerDriver) status(container string, exitCode int, sentence <-chan 
 				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
 
 				d := &dockerError{inspectErr}
-				logrus.WithFields(logrus.Fields{"container": container}).WithError(d).Error("Inspecting container for OOM check")
+				log.WithFields(logrus.Fields{"container": container}).WithError(d).Error("Inspecting container for OOM check")
 			} else {
 				if !cinfo.State.OOMKilled {
 					// It is possible that the host itself is running out of memory and
 					// the host kernel killed one of the container processes.
 					// See: https://github.com/docker/docker/issues/15621
-					logrus.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
+					log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
 					drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
 					// TODO: This may be a situation where we would like to shut down the runner completely.
 				}
