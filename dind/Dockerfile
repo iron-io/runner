@@ -1,5 +1,3 @@
-# iron/dind
-
 FROM docker:1.12-rc-dind
 
 RUN apk update && apk upgrade && apk add --no-cache ca-certificates
