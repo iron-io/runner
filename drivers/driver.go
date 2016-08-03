@@ -5,6 +5,8 @@ package drivers
 import (
 	"errors"
 	"io"
+	"math"
+	"time"
 
 	"golang.org/x/net/context"
 )
@@ -56,6 +58,8 @@ type ContainerTask interface {
 	// Driver will write output log from task execution to these writers. Must be
 	// non-nil. Use io.Discard if log is irrelevant.
 	Logger() (stdout, stderr io.Writer)
+	// WriteStat writes a single Stat, implementation need not be thread safe.
+	WriteStat(Stat)
 	// Volumes returns an array of 2-element tuples indicating storage volume mounts.
 	// The first element is the path on the host, and the second element is the
 	// path in the container.
@@ -67,6 +71,12 @@ type ContainerTask interface {
 	// Close is used to perform cleanup after task execution.
 	// Close should be safe to call multiple times.
 	Close()
+}
+
+// Stat is a bucket of stats from a driver at a point in time for a certain task.
+type Stat struct {
+	Timestamp time.Time
+	Metrics   map[string]uint64
 }
 
 // Set of acceptable errors coming from container engines to TaskRunner
@@ -101,4 +111,44 @@ func DefaultConfig() Config {
 		CPUShares:      0,
 		DefaultTimeout: 3600,
 	}
+}
+
+// Decimate will down sample to a max number of points in a given sample by
+// averaging samples together. i.e. max=240, if we have 240 samples, return
+// them all, if we have 480 samples, every 2 samples average them (and time
+// distance), and return 240 samples. This is relatively naive and if len(in) >
+// max, <= max points will be returned, not necessarily max: length(out) =
+// ceil(length(in)/max) -- feel free to fix this, setting a relatively high max
+// will allow good enough granularity at higher lengths, i.e. for max of 1 hour
+// tasks, sampling every 1s, decimate will return 15s samples if max=240.
+// Decimate will modify the input list for efficiency, it is not copy safe.
+func Decimate(maxSamples int, stats []Stat) []Stat {
+	if len(stats) <= maxSamples {
+		return stats
+	}
+	// this is relatively naive decimation, but will do the trick
+	sampleRate := int(math.Ceil(float64(len(stats)) / float64(maxSamples)))
+	for i := 0; i < len(stats); i++ {
+		n := i + sampleRate
+		if n > len(stats) {
+			n = len(stats)
+		}
+		st := stats[i:n]
+		var t time.Duration // sum duration from start, avg
+		stat := st[0]       // sum everything here
+		for _, s := range st[1:] {
+			t += s.Timestamp.Sub(stat.Timestamp)
+			for k, v := range s.Metrics {
+				stat.Metrics[k] += v
+			}
+		}
+		// avg
+		stat.Timestamp = stat.Timestamp.Add(t / time.Duration(len(st)))
+		for k, v := range stat.Metrics {
+			stat.Metrics[k] = v / uint64(len(st))
+		}
+		stats[i] = stat
+		stats = append(stats[:i+1], stats[n:]...)
+	}
+	return stats
 }
