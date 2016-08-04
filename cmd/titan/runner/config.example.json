@@ -1,8 +1,0 @@
-{
-    "concurrency": 4,
-    "driver": {
-      "jobs_dir": "./jobs",
-      "timeout": 3600
-    },
-    "api_url": "http://localhost:8080"
-}
