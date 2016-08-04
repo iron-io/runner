@@ -125,21 +125,25 @@ func DefaultConfig() Config {
 func Decimate(maxSamples int, stats []Stat) []Stat {
 	if len(stats) <= maxSamples {
 		return stats
+	} else if maxSamples <= 0 { // protect from pricks
+		return nil
 	}
 	// this is relatively naive decimation, but will do the trick
-	sampleRate := int(math.Ceil(float64(len(stats)) / float64(maxSamples)))
+	windowDur := (stats[len(stats)-1].Timestamp - stats[0].Timestamp) / maxSamples
 	for i := 0; i < len(stats); i++ {
-		n := i + sampleRate
-		if n > len(stats) {
-			n = len(stats)
-		}
-		st := stats[i:n]
-		var t time.Duration // sum duration from start, avg
-		stat := st[0]       // sum everything here
-		for _, s := range st[1:] {
-			t += s.Timestamp.Sub(stat.Timestamp)
-			for k, v := range s.Metrics {
-				stat.Metrics[k] += v
+		var t time.Duration   // sum duration from start, avg
+		var stat drivers.Stat // sum everything here
+		for _, s := range stats[i:] {
+			if s.Timestamp.Before(stats[0].Timestamp.Add(windowDur * (i + i))) {
+				break
+			}
+			if stat.Timestamp.IsZero() {
+				stat = s
+			} else {
+				t += s.Timestamp.Sub(stat.Timestamp)
+				for k, v := range s.Metrics {
+					stat.Metrics[k] += v
+				}
 			}
 		}
 		// avg
