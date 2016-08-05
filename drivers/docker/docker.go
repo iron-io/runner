@@ -2,7 +2,6 @@ package docker
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -94,15 +93,8 @@ func (d *dockerError) Unrecoverable() bool {
 		return sub.Unrecoverable()
 	}
 
-	// Since go1.6, url.Error satisfies net.Error, so we can trap both using
-	// this.  All network errors are considered unrecoverable since we are only
-	// talking with the local Docker daemon here, so the likely cause is that
-	// Docker is non-responsive.
-	if _, ok := d.error.(net.Error); ok {
-		return true
-	}
-
-	return d.error == docker.ErrConnectionRefused
+	// We don't have anything unrecoverable yet.
+	return false
 }
 
 func (d *dockerError) UserVisible() bool { return agent.IsUserVisibleError(d.error) }
