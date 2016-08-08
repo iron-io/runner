@@ -4,7 +4,6 @@ package drivers
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"time"
 

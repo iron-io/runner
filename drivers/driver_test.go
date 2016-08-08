@@ -50,4 +50,20 @@ func TestDecimate(t *testing.T) {
 	if len(stats) != 240 {
 		t.Error("decimate function bad", len(stats))
 	}
+
+	stats = make([]drivers.Stat, 300)
+	for i := range stats {
+		if i == 150 {
+			// leave 1 large gap
+			start = start.Add(20 * time.Minute)
+		}
+		stats[i] = drivers.Stat{
+			Timestamp: start.Add(time.Duration(i) * time.Second),
+			Metrics:   map[string]uint64{"x": uint64(i)},
+		}
+	}
+	stats = drivers.Decimate(240, stats)
+	if len(stats) != 173 {
+		t.Error("decimate function bad", len(stats))
+	}
 }
