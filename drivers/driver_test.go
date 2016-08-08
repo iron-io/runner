@@ -15,7 +15,7 @@ func TestDecimate(t *testing.T) {
 			Timestamp: start.Add(time.Duration(i) * time.Second),
 			Metrics:   map[string]uint64{"x": uint64(i)},
 		}
-		//t.Log(stats[i])
+		//		t.Log(stats[i])
 	}
 
 	stats = drivers.Decimate(240, stats)
@@ -35,7 +35,7 @@ func TestDecimate(t *testing.T) {
 		}
 	}
 	stats = drivers.Decimate(240, stats)
-	if len(stats) != 234 {
+	if len(stats) != 240 {
 		t.Error("decimate function bad", len(stats))
 	}
 
@@ -47,7 +47,7 @@ func TestDecimate(t *testing.T) {
 		}
 	}
 	stats = drivers.Decimate(240, stats)
-	if len(stats) != 150 {
+	if len(stats) != 240 {
 		t.Error("decimate function bad", len(stats))
 	}
 }

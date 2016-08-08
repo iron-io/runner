@@ -4,8 +4,8 @@ package drivers
 
 import (
 	"errors"
+	"fmt"
 	"io"
-	"math"
 	"time"
 
 	"golang.org/x/net/context"
@@ -121,38 +121,52 @@ func DefaultConfig() Config {
 // ceil(length(in)/max) -- feel free to fix this, setting a relatively high max
 // will allow good enough granularity at higher lengths, i.e. for max of 1 hour
 // tasks, sampling every 1s, decimate will return 15s samples if max=240.
+// Large gaps in time between samples (a factor > (last-start)/max) will result
+// in a shorter list being returned to account for lost samples.
 // Decimate will modify the input list for efficiency, it is not copy safe.
+// Input must be sorted by timestamp or this will fail gloriously.
 func Decimate(maxSamples int, stats []Stat) []Stat {
 	if len(stats) <= maxSamples {
 		return stats
 	} else if maxSamples <= 0 { // protect from pricks
 		return nil
 	}
-	// this is relatively naive decimation, but will do the trick
-	windowDur := (stats[len(stats)-1].Timestamp - stats[0].Timestamp) / maxSamples
-	for i := 0; i < len(stats); i++ {
-		var t time.Duration   // sum duration from start, avg
-		var stat drivers.Stat // sum everything here
-		for _, s := range stats[i:] {
-			if s.Timestamp.Before(stats[0].Timestamp.Add(windowDur * (i + i))) {
-				break
-			}
-			if stat.Timestamp.IsZero() {
-				stat = s
-			} else {
-				t += s.Timestamp.Sub(stat.Timestamp)
-				for k, v := range s.Metrics {
-					stat.Metrics[k] += v
+	// this is relatively naive decimation, but will do the trick. in place
+
+	// make fixed windows, fit samples into them
+	windowDur := stats[len(stats)-1].Timestamp.Sub(stats[0].Timestamp) / time.Duration(maxSamples)
+	start := stats[0].Timestamp
+	var offset int // the gap between the last stored and the next
+	for i := 0; i+offset < len(stats); i++ {
+		var t time.Duration // sum duration from start, avg
+		firstOff := offset
+		stats[i] = stats[i+offset] // sum everything here
+
+		for i+offset < len(stats) {
+			cur := stats[i+offset].Timestamp
+			st := start.Add(time.Duration(i) * windowDur)
+			end := start.Add(time.Duration(1+i) * windowDur)
+			lastOne := i+offset+1 == len(stats) // since integer division will be imprecise, re-fit this one
+			if end.Before(cur) && !lastOne {
+				if offset-firstOff > 0 {
+					break
+				}
+			} else if lastOne || end.Equal(cur) || cur.After(st) && cur.Before(end) {
+				t += stats[i+offset].Timestamp.Sub(stats[i].Timestamp)
+				for k, v := range stats[i+offset].Metrics {
+					stats[i].Metrics[k] += v
 				}
 			}
+			offset++
 		}
 		// avg
-		stat.Timestamp = stat.Timestamp.Add(t / time.Duration(len(st)))
-		for k, v := range stat.Metrics {
-			stat.Metrics[k] = v / uint64(len(st))
+		if offset-firstOff > 0 {
+			stats[i].Timestamp = stats[i].Timestamp.Add(t / time.Duration(offset-firstOff))
+			for k, v := range stats[i].Metrics {
+				stats[i].Metrics[k] = v / uint64(offset-firstOff)
+			}
 		}
-		stats[i] = stat
-		stats = append(stats[:i+1], stats[n:]...)
+		offset-- // since i will get incremented, want to keep same place
 	}
-	return stats
+	return stats[:len(stats)-offset]
 }
