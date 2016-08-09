@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -30,19 +31,6 @@ type Auther interface {
 	DockerAuth() []docker.AuthConfiguration
 }
 
-type ErrImageNotAllowed struct {
-	msg string
-}
-
-func (e *ErrImageNotAllowed) Error() string    { return e.msg }
-func (e *ErrImageNotAllowed) UserError() error { return fmt.Errorf(e.msg) }
-
-func NewErrImageNotAllowed(msg string) error {
-	return &ErrImageNotAllowed{
-		msg: msg,
-	}
-}
-
 // Clients may need to impose some restrictions on what images a task is
 // allowed to execute. If the image is not locally available, there is
 // a significant I/O cost to getting more information about the image, which is
@@ -53,7 +41,7 @@ type AllowImager interface {
 	// AllowImagePull controls whether pulling this particular image is allowed.
 	// - If the image pull is to be allowed return nil.
 	// - If the image can be accessed, but the pull is not allowed, return
-	//   ErrImageNotAllowed.
+	//   a UserVisible error
 	// - If the image could not be accessed, or some other reason, return some
 	//   other error.
 	AllowImagePull(repo string, authConfig docker.AuthConfiguration) error
@@ -73,12 +61,6 @@ type AllowImager interface {
 	// always fill in the RepoTags argument. So we pass the original
 	// repository name separately.
 	AllowImage(repo string, info *docker.Image) error
-}
-
-type BeforeStarter interface {
-	// BeforeStart is called just before execution of the container is started.
-	// Returning an error will abort execution and fail the task.
-	BeforeStart() error
 }
 
 // Certain Docker errors are unrecoverable in the sense that the daemon is
@@ -103,17 +85,10 @@ func (d *dockerError) UserError() error  { return d.error.(agent.UserVisibleErro
 type runResult struct {
 	Err         error
 	StatusValue string
-	closer      func()
 }
 
-func (r *runResult) Error() error   { return r.Err }
-func (r *runResult) Status() string { return r.StatusValue }
-func (r *runResult) Close() error {
-	if r.closer != nil {
-		r.closer()
-	}
-	return nil
-}
+func (runResult *runResult) Error() error   { return runResult.Err }
+func (runResult *runResult) Status() string { return runResult.StatusValue }
 
 type DockerDriver struct {
 	conf     drivers.Config
@@ -159,17 +134,6 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, err
 	}
-
-	removeContainer := func() {
-		drv.removeContainer(container)
-	}
-	// We're going to steal removeContainer and put it in runResult if everything goes
-	// smoothly. This lets us remove the container after updating task status.
-	defer func() {
-		if removeContainer != nil {
-			removeContainer()
-		}
-	}()
 
 	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
 
@@ -222,9 +186,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	r := &runResult{
 		StatusValue: status,
 		Err:         err,
-		closer:      removeContainer,
 	}
-	removeContainer = nil
 	return r, nil
 }
 
@@ -320,28 +282,11 @@ func cherryPick(ds *docker.Stats) drivers.Stat {
 	}
 }
 
+func containerID(task drivers.ContainerTask) string { return "task-" + task.Id() }
+
 func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTask) (dockerId string, err error) {
 	log := titancommon.Logger(ctx)
-	// TODO: Need a way to call down into docker, read the return error, compare it against Unrecoverable error and stop, otherwise continue, while still being able to add context to errors.
-	cID, err := drv.createContainer(ctx, task)
-	if err != nil {
-		return "", err
-	}
-
-	removeContainer := func() {
-		if cID != "" {
-			drv.removeContainer(cID)
-		}
-	}
-
-	if bs, ok := task.(BeforeStarter); ok {
-		err := bs.BeforeStart()
-		if err != nil {
-			removeContainer()
-			drv.Inc("docker", "container_prestart_error", 1, 1.0)
-			return "", err
-		}
-	}
+	cID := containerID(task)
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
 	log.WithFields(logrus.Fields{"container": cID}).Info("Starting container execution")
@@ -349,19 +294,13 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 	startTimer.Measure()
 	if err != nil {
 		// Remove the created container since we couldn't start it.
-		removeContainer()
 		drv.Inc("docker", "container_start_error", 1, 1.0)
 		return "", &dockerError{err}
 	}
 	return cID, nil
 }
 
-func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.ContainerTask) (string, error) {
-	if task.Image() == "" {
-		return "", fmt.Errorf("no image specified")
-	}
-
-	log := titancommon.Logger(ctx)
+func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
 	var cmd []string
 	if task.Command() != "" {
 		// TODO We may have to move the sh part out to swapi tasker so it can decide between sh-ing .runtask directly vs using the -c form with a command.
@@ -376,7 +315,7 @@ func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.Conta
 	}
 
 	container := docker.CreateContainerOptions{
-		Name: "task-" + task.Id(),
+		Name: containerID(task),
 		Config: &docker.Config{
 			Env:       envvars,
 			Cmd:       cmd,
@@ -392,46 +331,58 @@ func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.Conta
 
 	volumes := task.Volumes()
 	for _, mapping := range volumes {
-		if len(mapping) != 2 {
-			return "", fmt.Errorf("Invalid volume tuple: %v. Tuple must be 2-element", mapping)
-		}
-
 		hostDir := mapping[0]
 		containerDir := mapping[1]
 		container.Config.Volumes[containerDir] = struct{}{}
 		mapn := fmt.Sprintf("%s:%s", hostDir, containerDir)
 		container.HostConfig.Binds = append(container.HostConfig.Binds, mapn)
-		log.WithFields(logrus.Fields{"volumes": mapn}).Debug("setting volumes")
+		logrus.WithFields(logrus.Fields{"volumes": mapn, "task_id": task.Id()}).Debug("setting volumes")
 	}
 
 	if wd := task.WorkDir(); wd != "" {
-		log.WithFields(logrus.Fields{"wd": wd}).Debug("setting work dir")
+		logrus.WithFields(logrus.Fields{"wd": wd, "task_id": task.Id()}).Debug("setting work dir")
 		container.Config.WorkingDir = wd
 	}
 
 	err := drv.EnsureUsableImage(ctx, task)
 	if err != nil {
-		return "", err
+		// TODO differentiate certain 'user friendly' errors so that we don't run this task ever again if they goofed.
+		return nil, err
 	}
 
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	c, err := drv.docker.CreateContainer(container)
 	createTimer.Measure()
 	if err != nil {
-		logDockerContainerConfig(log, container)
+		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
+			"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname,
+			"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
+		}).WithError(err).Error("Could not create container")
 		drv.Inc("docker", "container_create_error", 1, 1.0)
-		return "", &dockerError{err}
+		// TODO differentiate errors
+		return nil, &dockerError{err}
 	}
 
-	return c.ID, nil
+	// discard removal error
+	return &closer{func() error { drv.removeContainer(c.ID); return nil }}, nil
 }
 
-func (drv *DockerDriver) removeContainer(container string) {
+type closer struct {
+	close func() error
+}
+
+func (c *closer) Close() error { return c.close() }
+
+func (drv *DockerDriver) removeContainer(container string) error {
 	removeTimer := drv.NewTimer("docker", "remove_container", 1.0)
-	// TODO: trap error
-	drv.docker.RemoveContainer(docker.RemoveContainerOptions{
+	defer removeTimer.Measure()
+	err := drv.docker.RemoveContainer(docker.RemoveContainerOptions{
 		ID: container, Force: true, RemoveVolumes: true})
-	removeTimer.Measure()
+
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("error removing container")
+	}
+	return nil
 }
 
 func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTask) (*docker.Image, error) {
@@ -451,7 +402,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	for i, config := range configs {
 		if allower, ok := task.(AllowImager); ok {
 			err := allower.AllowImagePull(repoImage, config)
-			if _, ok := err.(*ErrImageNotAllowed); ok {
+			if agent.IsUserVisibleError(err) {
 				// if we could authenticate but the image is simply too big, tell the user
 				return nil, err
 			} else if err != nil {
@@ -528,10 +479,6 @@ func (drv *DockerDriver) acceptedCredentials(image string, config docker.AuthCon
 	key, _ := normalizedImage(image)
 	drv.authCacheLock.Lock()
 	defer drv.authCacheLock.Unlock()
-	if _, exists := drv.authCache[key]; !exists {
-		drv.authCache[key] = make([]docker.AuthConfiguration, 0, 1)
-	}
-
 	drv.authCache[key] = append(drv.authCache[key], config)
 }
 
@@ -699,23 +646,17 @@ func (drv *DockerDriver) status(ctx context.Context, container string, exitCode 
 	return status, err
 }
 
-// TODO we _sure_ it's dead?
 func (drv *DockerDriver) cancel(container string) {
-	stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
-	drv.docker.StopContainer(container, 5)
-	// We will get a large skew due to the by default 5 second wait. Should we log times after subtracting this?
-	stopTimer.Measure()
-}
-
-func logDockerContainerConfig(log logrus.FieldLogger, container docker.CreateContainerOptions) {
-	// envvars are left out because they could have private information.
-	log.WithFields(logrus.Fields{
-		"command":    container.Config.Cmd,
-		"memory":     container.Config.Memory,
-		"cpu_shares": container.Config.CPUShares,
-		"hostname":   container.Config.Hostname,
-		"image":      container.Config.Image,
-		"volumes":    container.Config.Volumes,
-		"binds":      container.HostConfig.Binds,
-	}).Error("Could not create container")
+	for {
+		stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
+		err := drv.docker.StopContainer(container, 30)
+		stopTimer.Measure()
+		if derr, ok := err.(*docker.Error); err == nil || ok && derr.Status < 500 {
+			// 204=ok, 304=stopped already, 404=no container -> OK
+			// TODO if docker dies this might run forever?
+			break
+		}
+		time.Sleep(1 * time.Second) // TODO plumb clock?
+		logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("could not kill container, retrying indefinitely")
+	}
 }

@@ -11,6 +11,14 @@ import (
 )
 
 type Driver interface {
+	// Prepare can be used in order to do any preparation that a specific driver
+	// may need to do before running the task, and can be useful to put
+	// preparation that the task can recover from into (i.e. if pulling an image
+	// fails because a registry is down, the task doesn't need to be failed).  It
+	// returns an io.Closer that may be used to remove any artifacts from the
+	// task, should it be allowed to run or not.
+	Prepare(ctx context.Context, task ContainerTask) (io.Closer, error)
+
 	// Run should execute task on the implementation.
 	// RunResult captures the result of task execution. This means if task
 	// execution fails due to a problem in the task, Run() MUST return a valid
@@ -28,10 +36,6 @@ type Driver interface {
 
 // RunResult indicates only the final state of the task.
 type RunResult interface {
-	// RunResult implementations should do any cleanup in here. All fields should
-	// be considered invalid after Close() is called.
-	io.Closer
-
 	// Error is an actionable/checkable error from the container.
 	Error() error
 
