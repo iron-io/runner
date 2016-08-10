@@ -9,4 +9,7 @@ docker daemon \
 		--host=tcp://0.0.0.0:2375 \
 		--storage-driver=$(grep -Eh -w -m1 "btrfs|overlay|aufs" /proc/filesystems | cut -f2) &
 
+# wait for daemon to initialize
+sleep 10
+
 exec "$@"
