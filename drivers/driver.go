@@ -123,13 +123,10 @@ func average(samples []Stat) (Stat, bool) {
 	s := Stat{
 		Metrics: samples[0].Metrics, // Recycle Metrics map from first sample
 	}
-	var t int64
-	for i, sample := range samples {
+	t := samples[0].Timestamp.UnixNano() / int64(l)
+	for _, sample := range samples[1:] {
 		t += sample.Timestamp.UnixNano() / int64(l)
 		for k, v := range sample.Metrics {
-			if i == 0 {
-				s.Metrics[k] = 0 // Clear original value in recycled map
-			}
 			s.Metrics[k] += v
 		}
 	}
