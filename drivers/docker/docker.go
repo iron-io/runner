@@ -180,8 +180,6 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	status, err := drv.status(ctx, container, exitCode, sentence)
 
-	// TODO: Check stdout/stderr for driver-specific errors like OOM.
-
 	// the err returned above is an error from running user code, so we don't return it from this method.
 	r := &runResult{
 		StatusValue: status,
@@ -346,7 +344,6 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 
 	err := drv.EnsureUsableImage(ctx, task)
 	if err != nil {
-		// TODO differentiate certain 'user friendly' errors so that we don't run this task ever again if they goofed.
 		return nil, err
 	}
 
@@ -359,7 +356,8 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 			"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
 		}).WithError(err).Error("Could not create container")
 		drv.Inc("docker", "container_create_error", 1, 1.0)
-		// TODO differentiate errors
+		// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
+		// via certain invalid args, tbd
 		return nil, &dockerError{err}
 	}
 
@@ -611,37 +609,35 @@ func (drv *DockerDriver) status(ctx context.Context, container string, exitCode 
 		log = titancommon.Logger(ctx)
 	)
 	select {
-	case status = <-sentence: // use this if timed out
+	case status = <-sentence: // use this if timed out / canceled
+		return status, nil
 	default:
-		switch exitCode {
-		case 0:
-			status = drivers.StatusSuccess
-		case 137:
-			// Probably an OOM kill
+	}
+	switch exitCode {
+	default:
+		status = drivers.StatusError
+		err = fmt.Errorf("exit code %d", exitCode)
+	case 0:
+		status = drivers.StatusSuccess
+	case 137: // OOM
+		cinfo, inspectErr := drv.docker.InspectContainer(container)
+		if inspectErr != nil {
+			drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
 
-			cinfo, inspectErr := drv.docker.InspectContainer(container)
-			if inspectErr != nil {
-				drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
-
-				d := &dockerError{inspectErr}
-				log.WithFields(logrus.Fields{"container": container}).WithError(d).Error("Inspecting container for OOM check")
-			} else {
-				if !cinfo.State.OOMKilled {
-					// It is possible that the host itself is running out of memory and
-					// the host kernel killed one of the container processes.
-					// See: https://github.com/docker/docker/issues/15621
-					log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
-					drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
-					// TODO: This may be a situation where we would like to shut down the runner completely.
-				}
+			d := &dockerError{inspectErr}
+			log.WithFields(logrus.Fields{"container": container}).WithError(d).Error("Inspecting container for OOM check")
+		} else {
+			if !cinfo.State.OOMKilled {
+				// It is possible that the host itself is running out of memory and
+				// the host kernel killed one of the container processes.
+				// See: https://github.com/docker/docker/issues/15621
+				log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
+				drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
 			}
-
-			status = drivers.StatusKilled
-			err = drivers.ErrOutOfMemory
-		default:
-			status = drivers.StatusError
-			err = fmt.Errorf("exit code %d", exitCode)
 		}
+
+		status = drivers.StatusKilled
+		err = drivers.ErrOutOfMemory
 	}
 	return status, err
 }
