@@ -112,6 +112,33 @@ func DefaultConfig() Config {
 	}
 }
 
+func average(samples []Stat) (Stat, bool) {
+	l := len(samples)
+	if l == 0 {
+		return Stat{}, false
+	} else if l == 1 {
+		return samples[0], true
+	}
+
+	s := Stat{
+		Metrics: samples[0].Metrics,
+	}
+	first := true
+	var t int64
+	for _, sample := range samples {
+		t += sample.Timestamp.UnixNano() / int64(l)
+		for k, v := range sample.Metrics {
+			if first {
+				s.Metrics[k] = 0
+			}
+			s.Metrics[k] += v / uint64(l)
+		}
+		first = false
+	}
+	s.Timestamp = time.Unix(0, t)
+	return s, true
+}
+
 // Decimate will down sample to a max number of points in a given sample by
 // averaging samples together. i.e. max=240, if we have 240 samples, return
 // them all, if we have 480 samples, every 2 samples average them (and time
@@ -130,42 +157,30 @@ func Decimate(maxSamples int, stats []Stat) []Stat {
 	} else if maxSamples <= 0 { // protect from pricks
 		return nil
 	}
-	// this is relatively naive decimation, but will do the trick. in place
 
-	// make fixed windows, fit samples into them
-	windowDur := stats[len(stats)-1].Timestamp.Sub(stats[0].Timestamp) / time.Duration(maxSamples)
 	start := stats[0].Timestamp
-	var offset int // the gap between the last stored and the next
-	for i := 0; i+offset < len(stats); i++ {
-		var t time.Duration // sum duration from start, avg
-		firstOff := offset
-		stats[i] = stats[i+offset] // sum everything here
+	window := stats[len(stats)-1].Timestamp.Sub(start) / time.Duration(maxSamples)
 
-		for i+offset < len(stats) {
-			cur := stats[i+offset].Timestamp
-			st := start.Add(time.Duration(i) * windowDur)
-			end := start.Add(time.Duration(1+i) * windowDur)
-			lastOne := i+offset+1 == len(stats) // since integer division will be imprecise, re-fit this one
-			if end.Before(cur) && !lastOne {
-				if offset-firstOff > 0 {
-					break
-				}
-			} else if lastOne || end.Equal(cur) || cur.After(st) && cur.Before(end) {
-				t += stats[i+offset].Timestamp.Sub(stats[i].Timestamp)
-				for k, v := range stats[i+offset].Metrics {
-					stats[i].Metrics[k] += v
-				}
+	nextEntry, current := 0, start
+	for x := 0; x < len(stats); {
+		windowEnd := current.Add(window)
+		isLastEntry := nextEntry == maxSamples-1
+
+		var samples []Stat
+		for offset := 0; x+offset < len(stats); offset++ {
+			if !isLastEntry && stats[x+offset].Timestamp.After(windowEnd) {
+				break
 			}
-			offset++
+			samples = stats[x : x+offset+1]
 		}
-		// avg
-		if offset-firstOff > 0 {
-			stats[i].Timestamp = stats[i].Timestamp.Add(t / time.Duration(offset-firstOff))
-			for k, v := range stats[i].Metrics {
-				stats[i].Metrics[k] = v / uint64(offset-firstOff)
-			}
+
+		x += len(samples)
+		if entry, ok := average(samples); ok {
+			stats[nextEntry] = entry
+			nextEntry++
 		}
-		offset-- // since i will get incremented, want to keep same place
+
+		current = current.Add(window)
 	}
-	return stats[:len(stats)-offset]
+	return stats[:nextEntry]
 }

@@ -63,7 +63,7 @@ func TestDecimate(t *testing.T) {
 		}
 	}
 	stats = drivers.Decimate(240, stats)
-	if len(stats) != 173 {
+	if len(stats) != 49 {
 		t.Error("decimate function bad", len(stats))
 	}
 }
