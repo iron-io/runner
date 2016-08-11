@@ -121,19 +121,23 @@ func average(samples []Stat) (Stat, bool) {
 	}
 
 	s := Stat{
-		Metrics: samples[0].Metrics,
+		Metrics: samples[0].Metrics, // Recycle Metrics map from first sample
 	}
 	var t int64
 	for i, sample := range samples {
 		t += sample.Timestamp.UnixNano() / int64(l)
 		for k, v := range sample.Metrics {
 			if i == 0 {
-				s.Metrics[k] = 0
+				s.Metrics[k] = 0 // Clear original value in recycled map
 			}
-			s.Metrics[k] += v / uint64(l)
+			s.Metrics[k] += v
 		}
 	}
+
 	s.Timestamp = time.Unix(0, t)
+	for k, v := range s.Metrics {
+		s.Metrics[k] = v / uint64(l)
+	}
 	return s, true
 }
 
@@ -152,33 +156,32 @@ func average(samples []Stat) (Stat, bool) {
 func Decimate(maxSamples int, stats []Stat) []Stat {
 	if len(stats) <= maxSamples {
 		return stats
-	} else if maxSamples <= 0 { // protect from pricks
+	} else if maxSamples <= 0 { // protect from nefarious input
 		return nil
 	}
 
 	start := stats[0].Timestamp
 	window := stats[len(stats)-1].Timestamp.Sub(start) / time.Duration(maxSamples)
 
-	nextEntry, current := 0, start
+	nextEntry, current := 0, start // nextEntry is the index tracking next Stats record location
 	for x := 0; x < len(stats); {
-		windowEnd := current.Add(window)
-		isLastEntry := nextEntry == maxSamples-1
+		isLastEntry := nextEntry == maxSamples-1 // Last bin is larger than others to handle imprecision
 
 		var samples []Stat
-		for offset := 0; x+offset < len(stats); offset++ {
-			if !isLastEntry && stats[x+offset].Timestamp.After(windowEnd) {
+		for offset := 0; x+offset < len(stats); offset++ { // Iterate through samples until out of window
+			if !isLastEntry && stats[x+offset].Timestamp.After(current.Add(window)) {
 				break
 			}
 			samples = stats[x : x+offset+1]
 		}
 
-		x += len(samples)
-		if entry, ok := average(samples); ok {
+		x += len(samples)                      // Skip # of samples for next window
+		if entry, ok := average(samples); ok { // Only record Stat if 1+ samples exist
 			stats[nextEntry] = entry
 			nextEntry++
 		}
 
 		current = current.Add(window)
 	}
-	return stats[:nextEntry]
+	return stats[:nextEntry] // Return slice of []Stats that was modified with averages
 }
