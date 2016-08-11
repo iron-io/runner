@@ -297,6 +297,7 @@ func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.Conta
 			Hostname:  drv.hostname,
 			Image:     task.Image(),
 			Volumes:   map[string]struct{}{},
+			Labels:    task.Labels(),
 		},
 		HostConfig: &docker.HostConfig{},
 	}

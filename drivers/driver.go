@@ -48,6 +48,8 @@ type ContainerTask interface {
 	Command() string
 	// EnvVars returns environment variable key-value pairs.
 	EnvVars() map[string]string
+	// Labels returns container label key-value pairs.
+	Labels() map[string]string
 	Id() string
 	// Image returns the runtime specific image to run.
 	Image() string
