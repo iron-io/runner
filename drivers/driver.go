@@ -123,17 +123,15 @@ func average(samples []Stat) (Stat, bool) {
 	s := Stat{
 		Metrics: samples[0].Metrics,
 	}
-	first := true
 	var t int64
-	for _, sample := range samples {
+	for i, sample := range samples {
 		t += sample.Timestamp.UnixNano() / int64(l)
 		for k, v := range sample.Metrics {
-			if first {
+			if i == 0 {
 				s.Metrics[k] = 0
 			}
 			s.Metrics[k] += v / uint64(l)
 		}
-		first = false
 	}
 	s.Timestamp = time.Unix(0, t)
 	return s, true
