@@ -647,9 +647,10 @@ func (drv *DockerDriver) cancel(container string) {
 		stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
 		err := drv.docker.StopContainer(container, 30)
 		stopTimer.Measure()
-		if derr, ok := err.(*docker.Error); err == nil || ok && derr.Status < 500 {
+		_, notRunning := err.(*docker.ContainerNotRunning)
+		if derr, ok := err.(*docker.Error); err == nil || notRunning || ok && derr.Status < 500 {
 			// 204=ok, 304=stopped already, 404=no container -> OK
-			// TODO if docker dies this might run forever?
+			// TODO if docker dies this might run forever but we kind of want it to?
 			break
 		}
 		time.Sleep(1 * time.Second) // TODO plumb clock?
