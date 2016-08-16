@@ -287,7 +287,7 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 	cID := containerID(task)
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
-	log.WithFields(logrus.Fields{"container": cID}).Info("Starting container execution")
+	log.WithFields(logrus.Fields{"container": cID}).Debug("Starting container execution")
 	err = drv.docker.StartContainer(cID, nil)
 	startTimer.Measure()
 	if err != nil {
