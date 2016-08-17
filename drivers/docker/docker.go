@@ -63,6 +63,129 @@ type AllowImager interface {
 	AllowImage(repo string, info *docker.Image) error
 }
 
+// wrap docker client calls so we can retry 500s, kind of sucks but fsouza doesn't
+// bake in retries we can use internally, could contribute it at some point, would
+// be much more convenient if we didn't have to do this, but it's better than ad hoc retries.
+// TODO could generate this, maybe not worth it, may not change often
+type dockerClient interface {
+	AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (docker.CloseWaiter, error)
+	WaitContainer(id string) (int, error)
+	StartContainer(id string, hostConfig *docker.HostConfig) error
+	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
+	RemoveContainer(opts docker.RemoveContainerOptions) error
+	PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) error
+	InspectImage(name string) (*docker.Image, error)
+	InspectContainer(id string) (*docker.Container, error)
+	StopContainer(id string, timeout uint) error
+}
+
+func newClient() dockerClient {
+	// docker, err := docker.NewClient(conf.Docker)
+	client, err := docker.NewClientFromEnv()
+	if err != nil {
+		logrus.WithError(err).Fatal("couldn't create docker client")
+	}
+	return &dockerWrap{client}
+}
+
+type dockerWrap struct {
+	docker *docker.Client
+}
+
+func retry(f func() error) {
+	for {
+		err := f()
+		if isTemporary(err) || isDocker500(err) {
+			continue
+		}
+		break
+	}
+}
+
+func isTemporary(err error) bool {
+	terr, ok := err.(interface {
+		Temporary() bool
+	})
+	return ok && terr.Temporary()
+}
+
+func isDocker500(err error) bool {
+	derr, ok := err.(*docker.Error)
+	return ok && derr.Status >= 500
+}
+
+func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (cw docker.CloseWaiter, err error) {
+	retry(func() error {
+		cw, err = d.docker.AttachToContainerNonBlocking(opts)
+		return err
+	})
+	return cw, err
+}
+
+func (d *dockerWrap) WaitContainer(id string) (c int, err error) {
+	retry(func() error {
+		c, err = d.docker.WaitContainer(id)
+		return err
+	})
+	return c, err
+}
+
+func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
+	retry(func() error {
+		err = d.docker.StartContainer(id, hostConfig)
+		return err
+	})
+	return err
+}
+
+func (d *dockerWrap) CreateContainer(opts docker.CreateContainerOptions) (c *docker.Container, err error) {
+	retry(func() error {
+		c, err = d.docker.CreateContainer(opts)
+		return err
+	})
+	return c, err
+}
+
+func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err error) {
+	retry(func() error {
+		err = d.docker.RemoveContainer(opts)
+		return err
+	})
+	return err
+}
+
+func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
+	retry(func() error {
+		err = d.docker.PullImage(opts, auth)
+		return err
+	})
+	return err
+}
+
+func (d *dockerWrap) InspectImage(name string) (i *docker.Image, err error) {
+	retry(func() error {
+		i, err = d.docker.InspectImage(name)
+		return err
+	})
+	return i, err
+}
+
+func (d *dockerWrap) InspectContainer(id string) (c *docker.Container, err error) {
+	retry(func() error {
+		c, err = d.docker.InspectContainer(id)
+		return err
+	})
+	return c, err
+}
+
+func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
+	retry(func() error {
+		err = d.docker.StopContainer(id, timeout)
+		return err
+	})
+	return err
+}
+
 // Certain Docker errors are unrecoverable in the sense that the daemon is
 // having problems and this driver can no longer continue.
 type dockerError struct {
@@ -92,7 +215,7 @@ func (runResult *runResult) Status() string { return runResult.StatusValue }
 
 type DockerDriver struct {
 	conf     drivers.Config
-	docker   *docker.Client
+	docker   dockerClient // retries on *docker.Client, restricts ad hoc *docker.Client usage / retries
 	hostname string
 
 	// Map from image repository (everything except the tag) to an array of
@@ -111,15 +234,9 @@ func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver 
 		logrus.WithError(err).Fatal("couldn't resolve hostname")
 	}
 
-	// docker, err := docker.NewClient(conf.Docker)
-	client, err := docker.NewClientFromEnv()
-	if err != nil {
-		logrus.WithError(err).Fatal("couldn't create docker client")
-	}
-
 	return &DockerDriver{
 		conf:        conf,
-		docker:      client,
+		docker:      newClient(),
 		hostname:    hostname,
 		authCache:   make(map[string][]docker.AuthConfiguration),
 		Environment: env,
@@ -648,7 +765,7 @@ func (drv *DockerDriver) cancel(container string) {
 		err := drv.docker.StopContainer(container, 30)
 		stopTimer.Measure()
 		_, notRunning := err.(*docker.ContainerNotRunning)
-		if derr, ok := err.(*docker.Error); err == nil || notRunning || ok && derr.Status < 500 {
+		if err == nil || notRunning {
 			// 204=ok, 304=stopped already, 404=no container -> OK
 			// TODO if docker dies this might run forever but we kind of want it to?
 			break
