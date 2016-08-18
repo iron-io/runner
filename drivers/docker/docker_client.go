@@ -24,6 +24,7 @@ type dockerClient interface {
 	InspectImage(name string) (*docker.Image, error)
 	InspectContainer(id string) (*docker.Container, error)
 	StopContainer(id string, timeout uint) error
+	Stats(opts docker.StatsOptions) error
 }
 
 func newClient() dockerClient {
@@ -133,6 +134,14 @@ func (d *dockerWrap) InspectContainer(id string) (c *docker.Container, err error
 func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
 	retry(func() error {
 		err = d.docker.StopContainer(id, timeout)
+		return err
+	})
+	return err
+}
+
+func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {
+	retry(func() error {
+		err = d.docker.Stats(opts)
 		return err
 	})
 	return err
