@@ -106,17 +106,11 @@ type runResult struct {
 	closer      func()
 }
 
-func (runResult *runResult) Error() error {
-	return runResult.Err
-}
-
-func (runResult *runResult) Status() string {
-	return runResult.StatusValue
-}
-
-func (runResult *runResult) Close() error {
-	if runResult.closer != nil {
-		runResult.closer()
+func (r *runResult) Error() error   { return r.Err }
+func (r *runResult) Status() string { return r.StatusValue }
+func (r *runResult) Close() error {
+	if r.closer != nil {
+		r.closer()
 	}
 	return nil
 }
@@ -189,10 +183,12 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}
 	// TODO: make sure tasks don't have excessive timeouts? 24h?
 	// TODO: record task timeout values so we can get a good idea of what people generally set it to.
-	ctx, _ = context.WithTimeout(ctx, time.Duration(t)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
+	defer cancel() // do this so that after Run exits, nanny and collect stop
 
 	sentence := make(chan string, 1)
 	go drv.nanny(ctx, container, task, sentence)
+	go drv.collectStats(ctx, container, task)
 
 	mwOut, mwErr := task.Logger()
 
@@ -230,6 +226,98 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}
 	removeContainer = nil
 	return r, nil
+}
+
+// watch for cancel or timeout and kill process.
+func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask, sentence chan<- string) {
+	select {
+	case <-ctx.Done():
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			sentence <- drivers.StatusTimeout
+			drv.cancel(container)
+		case context.Canceled:
+			sentence <- drivers.StatusCancelled
+			drv.cancel(container)
+		}
+	}
+}
+
+func (drv *DockerDriver) collectStats(ctx context.Context, container string, task drivers.ContainerTask) {
+	done := make(chan bool)
+	defer close(done)
+	dstats := make(chan *docker.Stats, 1)
+	go func() {
+		// NOTE: docker automatically streams every 1s. we can skip or avg samples if we'd like but
+		// the memory overhead is < 1MB for 3600 stat points so this seems fine, seems better to stream
+		// (internal docker api streams) than open/close stream for 1 sample over and over.
+		// must be called in goroutine, docker.Stats() blocks
+		err := drv.docker.Stats(docker.StatsOptions{
+			ID:     container,
+			Stats:  dstats,
+			Stream: true,
+			Done:   done, // A flag that enables stopping the stats operation
+		})
+		if err != nil {
+			logrus.WithError(err).WithFields(logrus.Fields{"container": container, "task_id": task.Id()}).Error("error streaming docker stats for task")
+			return
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ds, ok := <-dstats:
+			if !ok {
+				return
+			}
+			task.WriteStat(cherryPick(ds))
+		}
+	}
+}
+
+func cherryPick(ds *docker.Stats) drivers.Stat {
+	// TODO cpu % is as a % of the whole system... cpu is weird since we're sharing it
+	// across a bunch of containers and it scales based on how many we're sharing with,
+	// do we want users to see as a % of system?
+	systemDelta := float64(ds.CPUStats.SystemCPUUsage - ds.PreCPUStats.SystemCPUUsage)
+	cores := float64(len(ds.CPUStats.CPUUsage.PercpuUsage))
+	var cpuUser, cpuKernel, cpuTotal float64
+	if systemDelta > 0 {
+		// TODO we could leave these in docker format and let hud/viz tools do this instead of us... like net is, could do same for mem, too. thoughts?
+		cpuUser = (float64(ds.CPUStats.CPUUsage.UsageInUsermode-ds.PreCPUStats.CPUUsage.UsageInUsermode) / systemDelta) * cores * 100.0
+		cpuKernel = (float64(ds.CPUStats.CPUUsage.UsageInKernelmode-ds.PreCPUStats.CPUUsage.UsageInKernelmode) / systemDelta) * cores * 100.0
+		cpuTotal = (float64(ds.CPUStats.CPUUsage.TotalUsage-ds.PreCPUStats.CPUUsage.TotalUsage) / systemDelta) * cores * 100.0
+	}
+	return drivers.Stat{
+		Timestamp: ds.Read,
+		Metrics: map[string]uint64{
+			// source: https://godoc.org/github.com/fsouza/go-dockerclient#Stats
+			// ex (for future expansion): {"read":"2016-08-03T18:08:05Z","pids_stats":{},"network":{},"networks":{"eth0":{"rx_bytes":508,"tx_packets":6,"rx_packets":6,"tx_bytes":508}},"memory_stats":{"stats":{"cache":16384,"pgpgout":281,"rss":8826880,"pgpgin":2440,"total_rss":8826880,"hierarchical_memory_limit":536870912,"total_pgfault":3809,"active_anon":8843264,"total_active_anon":8843264,"total_pgpgout":281,"total_cache":16384,"pgfault":3809,"total_pgpgin":2440},"max_usage":8953856,"usage":8953856,"limit":536870912},"blkio_stats":{"io_service_bytes_recursive":[{"major":202,"op":"Read"},{"major":202,"op":"Write"},{"major":202,"op":"Sync"},{"major":202,"op":"Async"},{"major":202,"op":"Total"}],"io_serviced_recursive":[{"major":202,"op":"Read"},{"major":202,"op":"Write"},{"major":202,"op":"Sync"},{"major":202,"op":"Async"},{"major":202,"op":"Total"}]},"cpu_stats":{"cpu_usage":{"percpu_usage":[47641874],"usage_in_usermode":30000000,"total_usage":47641874},"system_cpu_usage":8880800500000000,"throttling_data":{}},"precpu_stats":{"cpu_usage":{"percpu_usage":[44946186],"usage_in_usermode":30000000,"total_usage":44946186},"system_cpu_usage":8880799510000000,"throttling_data":{}}}
+			// TODO could prefix these with net_ or make map[string]map[string]uint64 to group... thoughts?
+
+			// net
+			"rx_dropped": ds.Network.RxDropped,
+			"rx_bytes":   ds.Network.RxBytes,
+			"rx_errors":  ds.Network.RxErrors,
+			"tx_packets": ds.Network.TxPackets,
+			"tx_dropped": ds.Network.TxDropped,
+			"rx_packets": ds.Network.RxPackets,
+			"tx_errors":  ds.Network.TxErrors,
+			"tx_bytes":   ds.Network.TxBytes,
+			// mem
+			"mem_limit": ds.MemoryStats.Limit,
+			"mem_usage": ds.MemoryStats.Usage,
+			// i/o
+			// TODO weird format in lib... probably ok to omit disk stats for a while, memory is main one
+			// cpu
+			"cpu_user":   uint64(cpuUser),
+			"cpu_total":  uint64(cpuTotal),
+			"cpu_kernel": uint64(cpuKernel),
+			// TODO probably don't show cpu throttling? ;)
+		},
+	}
 }
 
 func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTask) (dockerId string, err error) {
@@ -566,21 +654,6 @@ func isAuthError(err error) bool {
 	}
 
 	return false
-}
-
-// watch for cancel or timeout and kill process.
-func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask, sentence chan<- string) {
-	select {
-	case <-ctx.Done():
-		switch ctx.Err() {
-		case context.DeadlineExceeded:
-			sentence <- drivers.StatusTimeout
-			drv.cancel(container)
-		case context.Canceled:
-			sentence <- drivers.StatusCancelled
-			drv.cancel(container)
-		}
-	}
 }
 
 func (drv *DockerDriver) status(ctx context.Context, container string, exitCode int, sentence <-chan string) (string, error) {

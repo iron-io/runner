@@ -5,6 +5,7 @@ package drivers
 import (
 	"errors"
 	"io"
+	"time"
 
 	"golang.org/x/net/context"
 )
@@ -58,6 +59,8 @@ type ContainerTask interface {
 	// Driver will write output log from task execution to these writers. Must be
 	// non-nil. Use io.Discard if log is irrelevant.
 	Logger() (stdout, stderr io.Writer)
+	// WriteStat writes a single Stat, implementation need not be thread safe.
+	WriteStat(Stat)
 	// Volumes returns an array of 2-element tuples indicating storage volume mounts.
 	// The first element is the path on the host, and the second element is the
 	// path in the container.
@@ -69,6 +72,12 @@ type ContainerTask interface {
 	// Close is used to perform cleanup after task execution.
 	// Close should be safe to call multiple times.
 	Close()
+}
+
+// Stat is a bucket of stats from a driver at a point in time for a certain task.
+type Stat struct {
+	Timestamp time.Time
+	Metrics   map[string]uint64
 }
 
 // Set of acceptable errors coming from container engines to TaskRunner
@@ -103,4 +112,75 @@ func DefaultConfig() Config {
 		CPUShares:      0,
 		DefaultTimeout: 3600,
 	}
+}
+
+func average(samples []Stat) (Stat, bool) {
+	l := len(samples)
+	if l == 0 {
+		return Stat{}, false
+	} else if l == 1 {
+		return samples[0], true
+	}
+
+	s := Stat{
+		Metrics: samples[0].Metrics, // Recycle Metrics map from first sample
+	}
+	t := samples[0].Timestamp.UnixNano() / int64(l)
+	for _, sample := range samples[1:] {
+		t += sample.Timestamp.UnixNano() / int64(l)
+		for k, v := range sample.Metrics {
+			s.Metrics[k] += v
+		}
+	}
+
+	s.Timestamp = time.Unix(0, t)
+	for k, v := range s.Metrics {
+		s.Metrics[k] = v / uint64(l)
+	}
+	return s, true
+}
+
+// Decimate will down sample to a max number of points in a given sample by
+// averaging samples together. i.e. max=240, if we have 240 samples, return
+// them all, if we have 480 samples, every 2 samples average them (and time
+// distance), and return 240 samples. This is relatively naive and if len(in) >
+// max, <= max points will be returned, not necessarily max: length(out) =
+// ceil(length(in)/max) -- feel free to fix this, setting a relatively high max
+// will allow good enough granularity at higher lengths, i.e. for max of 1 hour
+// tasks, sampling every 1s, decimate will return 15s samples if max=240.
+// Large gaps in time between samples (a factor > (last-start)/max) will result
+// in a shorter list being returned to account for lost samples.
+// Decimate will modify the input list for efficiency, it is not copy safe.
+// Input must be sorted by timestamp or this will fail gloriously.
+func Decimate(maxSamples int, stats []Stat) []Stat {
+	if len(stats) <= maxSamples {
+		return stats
+	} else if maxSamples <= 0 { // protect from nefarious input
+		return nil
+	}
+
+	start := stats[0].Timestamp
+	window := stats[len(stats)-1].Timestamp.Sub(start) / time.Duration(maxSamples)
+
+	nextEntry, current := 0, start // nextEntry is the index tracking next Stats record location
+	for x := 0; x < len(stats); {
+		isLastEntry := nextEntry == maxSamples-1 // Last bin is larger than others to handle imprecision
+
+		var samples []Stat
+		for offset := 0; x+offset < len(stats); offset++ { // Iterate through samples until out of window
+			if !isLastEntry && stats[x+offset].Timestamp.After(current.Add(window)) {
+				break
+			}
+			samples = stats[x : x+offset+1]
+		}
+
+		x += len(samples)                      // Skip # of samples for next window
+		if entry, ok := average(samples); ok { // Only record Stat if 1+ samples exist
+			stats[nextEntry] = entry
+			nextEntry++
+		}
+
+		current = current.Add(window)
+	}
+	return stats[:nextEntry] // Return slice of []Stats that was modified with averages
 }
