@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"golang.org/x/net/context"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -11,11 +12,12 @@ import (
 // wrap docker client calls so we can retry 500s, kind of sucks but fsouza doesn't
 // bake in retries we can use internally, could contribute it at some point, would
 // be much more convenient if we didn't have to do this, but it's better than ad hoc retries.
+// also adds timeouts to many operations, varying by operation
 // TODO could generate this, maybe not worth it, may not change often
 type dockerClient interface {
 	// Each of these are github.com/fsouza/go-dockerclient methods
 
-	AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (docker.CloseWaiter, error)
+	AttachToContainer(opts docker.AttachToContainerOptions) error
 	WaitContainer(id string) (int, error)
 	StartContainer(id string, hostConfig *docker.HostConfig) error
 	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
@@ -27,12 +29,16 @@ type dockerClient interface {
 	Stats(opts docker.StatsOptions) error
 }
 
+// TODO: switch to github.com/docker/engine-api
 func newClient() dockerClient {
 	// docker, err := docker.NewClient(conf.Docker)
 	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't create docker client")
 	}
+
+	client.SetTimeout(30 * time.Second) // TODO test w/ large dockers image pulls
+
 	return &dockerWrap{client}
 }
 
@@ -67,12 +73,12 @@ func isDocker500(err error) bool {
 	return ok && derr.Status >= 500
 }
 
-func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (cw docker.CloseWaiter, err error) {
+func (d *dockerWrap) AttachToContainer(opts docker.AttachToContainerOptions) (err error) {
 	retry(func() error {
-		cw, err = d.docker.AttachToContainerNonBlocking(opts)
+		err = d.docker.AttachToContainer(opts)
 		return err
 	})
-	return cw, err
+	return err
 }
 
 func (d *dockerWrap) WaitContainer(id string) (c int, err error) {
@@ -109,6 +115,7 @@ func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err er
 
 func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
 	retry(func() error {
+		opts.Context, _ = context.WithTimeout(context.Background(), 60*time.Minute)
 		err = d.docker.PullImage(opts, auth)
 		return err
 	})
