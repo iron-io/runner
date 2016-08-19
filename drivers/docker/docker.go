@@ -464,7 +464,12 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 	return configs
 }
 
+// Make ensureUsableImage public and keep the private func for older implementations
 func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
+	return drv.EnsureUsableImage(ctx, task)
+}
+
+func (drv *DockerDriver) EnsureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 

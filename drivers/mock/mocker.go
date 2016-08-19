@@ -26,6 +26,10 @@ func (m *Mocker) Run(ctx context.Context, task drivers.ContainerTask) (drivers.R
 	}, nil
 }
 
+func (m *Mocker) EnsureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
+	return nil
+}
+
 type runResult struct {
 	Err         error
 	StatusValue string
