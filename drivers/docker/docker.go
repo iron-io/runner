@@ -346,7 +346,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	createTimer.Measure()
 	if err != nil {
 		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
-			"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname,
+			"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
 			"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
 		}).WithError(err).Error("Could not create container")
 		drv.Inc("docker", "container_create_error", 1, 1.0)
