@@ -10,6 +10,6 @@ docker daemon \
 		--storage-driver=$(grep -Eh -w -m1 "btrfs|overlay|aufs" /proc/filesystems | cut -f2) &
 
 # wait for daemon to initialize
-sleep 10
+sleep 3
 
 exec "$@"
