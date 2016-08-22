@@ -321,7 +321,7 @@ func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.Conta
 		container.Config.WorkingDir = wd
 	}
 
-	err := drv.ensureUsableImage(ctx, task)
+	err := drv.EnsureUsableImage(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -462,11 +462,6 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 	}
 
 	return configs
-}
-
-// Make ensureUsableImage public and keep the private func for older implementations
-func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
-	return drv.EnsureUsableImage(ctx, task)
 }
 
 func (drv *DockerDriver) EnsureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
