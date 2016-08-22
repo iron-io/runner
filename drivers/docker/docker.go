@@ -409,7 +409,7 @@ func (drv *DockerDriver) createContainer(ctx context.Context, task drivers.Conta
 		container.Config.WorkingDir = wd
 	}
 
-	err := drv.ensureUsableImage(ctx, task)
+	err := drv.EnsureUsableImage(ctx, task)
 	if err != nil {
 		return "", err
 	}
@@ -552,7 +552,7 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 	return configs
 }
 
-func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
+func (drv *DockerDriver) EnsureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 

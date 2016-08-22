@@ -23,6 +23,7 @@ type Driver interface {
 	// cancelling the context.
 	// In addition, Run() should respect the task's timeout.
 	Run(ctx context.Context, task ContainerTask) (RunResult, error)
+	EnsureUsableImage(ctx context.Context, task ContainerTask) (error)
 }
 
 // RunResult indicates only the final state of the task.
