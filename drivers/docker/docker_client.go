@@ -18,7 +18,6 @@ type dockerClient interface {
 	// Each of these are github.com/fsouza/go-dockerclient methods
 
 	AttachToContainer(opts docker.AttachToContainerOptions) error
-	WaitContainer(id string) (int, error)
 	StartContainer(id string, hostConfig *docker.HostConfig) error
 	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
 	RemoveContainer(opts docker.RemoveContainerOptions) error
@@ -37,7 +36,9 @@ func newClient() dockerClient {
 		logrus.WithError(err).Fatal("couldn't create docker client")
 	}
 
-	client.SetTimeout(30 * time.Second) // TODO test w/ large dockers image pulls
+	// NOTE add granularity to things like pull, should not effect
+	// hijacked / streaming endpoints
+	client.SetTimeout(120 * time.Second)
 
 	return &dockerWrap{client}
 }
@@ -49,7 +50,7 @@ type dockerWrap struct {
 func retry(f func() error) {
 	var b agent.Backoff
 	then := time.Now()
-	for time.Now().Sub(then) < 2*time.Minute { // retry for 2 minutes
+	for time.Now().Sub(then) < 10*time.Minute { // retry for 10 minutes
 		err := f()
 		if isTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
@@ -79,14 +80,6 @@ func (d *dockerWrap) AttachToContainer(opts docker.AttachToContainerOptions) (er
 		return err
 	})
 	return err
-}
-
-func (d *dockerWrap) WaitContainer(id string) (c int, err error) {
-	retry(func() error {
-		c, err = d.docker.WaitContainer(id)
-		return err
-	})
-	return c, err
 }
 
 func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {

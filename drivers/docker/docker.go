@@ -150,29 +150,27 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	mwOut, mwErr := task.Logger()
 
-	// Docker sometimes fails to close the attach response connection even after
-	// the container stops, leaving the runner stuck. We use a non-blocking
-	// attach so we can sleep a bit after WaitContainer returns and then forcibly
-	// close the connection.
-	timer := drv.NewTimer("docker", "attach_container", 1)
-	err = drv.docker.AttachToContainer(docker.AttachToContainerOptions{
-		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
-		Stream: true, Logs: true, Stdout: true, Stderr: true, Context: ctx})
-	timer.Measure()
-	taskTimer.Measure()
-	if err != nil {
-		return nil, &dockerError{err}
-	}
+	// attach could sever before the container has exited, so loopy loop
+	for {
+		timer := drv.NewTimer("docker", "attach_container", 1)
+		err = drv.docker.AttachToContainer(docker.AttachToContainerOptions{
+			Container: container, OutputStream: mwOut, ErrorStream: mwErr,
+			Stream: true, Logs: true, Stdout: true, Stderr: true})
+		timer.Measure()
+		if err != nil {
+			return nil, &dockerError{err}
+		}
 
-	// TODO need to ensure task is no longer running
-	status, err := drv.status(ctx, container, sentence)
-
-	// the err returned above is an error from running user code, so we don't return it from this method.
-	r := &runResult{
-		StatusValue: status,
-		Err:         err,
+		// TODO need to ensure task is no longer running
+		status, err, done := drv.status(ctx, container, sentence)
+		if done {
+			taskTimer.Measure()
+			return &runResult{
+				StatusValue: status,
+				Err:         err,
+			}, nil
+		}
 	}
-	return r, nil
 }
 
 // watch for cancel or timeout and kill process.
@@ -397,7 +395,8 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 			}
 		}
 
-		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+		// add ctx so that pull doesn't time out (pull can take a while)
+		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag, Context: ctx}, config)
 		if err == docker.ErrConnectionRefused {
 			// If we couldn't connect to Docker, bail immediately.
 			return nil, &dockerError{err}
@@ -588,12 +587,12 @@ func isAuthError(err error) bool {
 	return false
 }
 
-func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (string, error) {
+func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error, done bool) {
 	log := titancommon.Logger(ctx)
 
 	select {
 	case status := <-sentence: // use this if timed out / canceled
-		return status, nil
+		return status, nil, true
 	default:
 	}
 
@@ -602,15 +601,18 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 		// this is pretty sad, but better to say we had an error than to not.
 		// task has run to completion and logs will be uploaded, user can decide
 		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container for OOM check")
-		return drivers.StatusError, &dockerError{err}
+		return drivers.StatusError, &dockerError{err}, true
 	}
 	exitCode := cinfo.State.ExitCode
+	if cinfo.State.Running {
+		return "", nil, false
+	}
 
 	switch exitCode {
 	default:
-		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode)
+		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode), true
 	case 0:
-		return drivers.StatusSuccess, nil
+		return drivers.StatusSuccess, nil, true
 	case 137: // OOM
 		if !cinfo.State.OOMKilled {
 			// It is possible that the host itself is running out of memory and
@@ -621,7 +623,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 			drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
 		}
 
-		return drivers.StatusKilled, drivers.ErrOutOfMemory
+		return drivers.StatusKilled, drivers.ErrOutOfMemory, true
 	}
 }
 
