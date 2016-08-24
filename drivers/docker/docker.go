@@ -13,9 +13,9 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/heroku/docker-registry-client/registry"
-	titancommon "github.com/iron-io/titan/common"
-	"github.com/iron-io/titan/runner/agent"
-	"github.com/iron-io/titan/runner/drivers"
+	titancommon "github.com/iron-io/worker/common"
+	"github.com/iron-io/worker/runner/agent"
+	"github.com/iron-io/worker/runner/drivers"
 	"golang.org/x/net/context"
 )
 

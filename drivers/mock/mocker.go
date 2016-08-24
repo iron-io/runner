@@ -6,7 +6,7 @@ import (
 	"io/ioutil"
 	"strings"
 
-	"github.com/iron-io/titan/runner/drivers"
+	"github.com/iron-io/worker/runner/drivers"
 	"golang.org/x/net/context"
 )
 
