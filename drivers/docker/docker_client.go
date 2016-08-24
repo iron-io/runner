@@ -49,7 +49,7 @@ type dockerWrap struct {
 func retry(f func() error) {
 	var b agent.Backoff
 	then := time.Now()
-	for time.Now().Sub(then) < 10*time.Minute { // retry for 10 minutes
+	for time.Since(then) < 10*time.Minute { // retry for 10 minutes
 		err := f()
 		if isTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
