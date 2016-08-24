@@ -150,36 +150,27 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	mwOut, mwErr := task.Logger()
 
-	// Docker sometimes fails to close the attach response connection even after
-	// the container stops, leaving the runner stuck. We use a non-blocking
-	// attach so we can sleep a bit after WaitContainer returns and then forcibly
-	// close the connection.
-	timer := drv.NewTimer("docker", "attach_container", 1)
-	closer, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
-		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
-		Stream: true, Logs: true, Stdout: true, Stderr: true})
-	defer closer.Close()
-	if err != nil {
-		return nil, &dockerError{err}
-	}
-	timer.Measure()
+	// attach could sever before the container has exited, so loopy loop
+	for {
+		timer := drv.NewTimer("docker", "attach_container", 1)
+		err = drv.docker.AttachToContainer(docker.AttachToContainerOptions{
+			Container: container, OutputStream: mwOut, ErrorStream: mwErr,
+			Stream: true, Logs: true, Stdout: true, Stderr: true})
+		timer.Measure()
+		if err != nil {
+			return nil, &dockerError{err}
+		}
 
-	// It's possible the execution could be finished here, then what? http://docs.docker.com.s3-website-us-east-1.amazonaws.com/engine/reference/api/docker_remote_api_v1.20/#wait-a-container
-	exitCode, err := drv.docker.WaitContainer(container)
-	taskTimer.Measure()
-	time.Sleep(10 * time.Millisecond)
-	if err != nil {
-		return nil, &dockerError{err}
+		// TODO need to ensure task is no longer running
+		status, err, done := drv.status(ctx, container, sentence)
+		if done {
+			taskTimer.Measure()
+			return &runResult{
+				StatusValue: status,
+				Err:         err,
+			}, nil
+		}
 	}
-
-	status, err := drv.status(ctx, container, exitCode, sentence)
-
-	// the err returned above is an error from running user code, so we don't return it from this method.
-	r := &runResult{
-		StatusValue: status,
-		Err:         err,
-	}
-	return r, nil
 }
 
 // watch for cancel or timeout and kill process.
@@ -409,7 +400,8 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 			}
 		}
 
-		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+		// add ctx so that pull doesn't time out (pull can take a while)
+		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag, Context: ctx}, config)
 		if err == docker.ErrConnectionRefused {
 			// If we couldn't connect to Docker, bail immediately.
 			return nil, &dockerError{err}
@@ -600,45 +592,44 @@ func isAuthError(err error) bool {
 	return false
 }
 
-func (drv *DockerDriver) status(ctx context.Context, container string, exitCode int, sentence <-chan string) (string, error) {
-	var (
-		status string
-		err    error
+func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error, done bool) {
+	log := titancommon.Logger(ctx)
 
-		log = titancommon.Logger(ctx)
-	)
 	select {
-	case status = <-sentence: // use this if timed out / canceled
-		return status, nil
+	case status := <-sentence: // use this if timed out / canceled
+		return status, nil, true
 	default:
 	}
+
+	cinfo, err := drv.docker.InspectContainer(container)
+	if err != nil {
+		// this is pretty sad, but better to say we had an error than to not.
+		// task has run to completion and logs will be uploaded, user can decide
+		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container for OOM check")
+		return drivers.StatusError, &dockerError{err}, true
+	}
+	exitCode := cinfo.State.ExitCode
+	if cinfo.State.Running {
+		return "", nil, false
+	}
+
 	switch exitCode {
 	default:
-		status = drivers.StatusError
-		err = fmt.Errorf("exit code %d", exitCode)
+		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode), true
 	case 0:
-		status = drivers.StatusSuccess
+		return drivers.StatusSuccess, nil, true
 	case 137: // OOM
-		cinfo, inspectErr := drv.docker.InspectContainer(container)
-		if inspectErr != nil {
-			drv.Inc("docker", "possible_oom_inspect_container_error", 1, 1.0)
-
-			d := &dockerError{inspectErr}
-			log.WithFields(logrus.Fields{"container": container}).WithError(d).Error("Inspecting container for OOM check")
-		} else {
-			if !cinfo.State.OOMKilled {
-				// It is possible that the host itself is running out of memory and
-				// the host kernel killed one of the container processes.
-				// See: https://github.com/docker/docker/issues/15621
-				log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
-				drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
-			}
+		if !cinfo.State.OOMKilled {
+			// It is possible that the host itself is running out of memory and
+			// the host kernel killed one of the container processes.
+			// See: https://github.com/docker/docker/issues/15621
+			// TODO reed: isn't an OOM an OOM? this is wasting space imo
+			log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
+			drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
 		}
 
-		status = drivers.StatusKilled
-		err = drivers.ErrOutOfMemory
+		return drivers.StatusKilled, drivers.ErrOutOfMemory, true
 	}
-	return status, err
 }
 
 func (drv *DockerDriver) cancel(container string) {

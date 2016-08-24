@@ -11,12 +11,12 @@ import (
 // wrap docker client calls so we can retry 500s, kind of sucks but fsouza doesn't
 // bake in retries we can use internally, could contribute it at some point, would
 // be much more convenient if we didn't have to do this, but it's better than ad hoc retries.
+// also adds timeouts to many operations, varying by operation
 // TODO could generate this, maybe not worth it, may not change often
 type dockerClient interface {
 	// Each of these are github.com/fsouza/go-dockerclient methods
 
-	AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (docker.CloseWaiter, error)
-	WaitContainer(id string) (int, error)
+	AttachToContainer(opts docker.AttachToContainerOptions) error
 	StartContainer(id string, hostConfig *docker.HostConfig) error
 	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
 	RemoveContainer(opts docker.RemoveContainerOptions) error
@@ -27,12 +27,18 @@ type dockerClient interface {
 	Stats(opts docker.StatsOptions) error
 }
 
+// TODO: switch to github.com/docker/engine-api
 func newClient() dockerClient {
 	// docker, err := docker.NewClient(conf.Docker)
 	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't create docker client")
 	}
+
+	// NOTE add granularity to things like pull, should not effect
+	// hijacked / streaming endpoints
+	client.SetTimeout(120 * time.Second)
+
 	return &dockerWrap{client}
 }
 
@@ -43,7 +49,7 @@ type dockerWrap struct {
 func retry(f func() error) {
 	var b agent.Backoff
 	then := time.Now()
-	for time.Now().Sub(then) < 2*time.Minute { // retry for 2 minutes
+	for time.Since(then) < 10*time.Minute { // retry for 10 minutes
 		err := f()
 		if isTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
@@ -67,20 +73,12 @@ func isDocker500(err error) bool {
 	return ok && derr.Status >= 500
 }
 
-func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (cw docker.CloseWaiter, err error) {
+func (d *dockerWrap) AttachToContainer(opts docker.AttachToContainerOptions) (err error) {
 	retry(func() error {
-		cw, err = d.docker.AttachToContainerNonBlocking(opts)
+		err = d.docker.AttachToContainer(opts)
 		return err
 	})
-	return cw, err
-}
-
-func (d *dockerWrap) WaitContainer(id string) (c int, err error) {
-	retry(func() error {
-		c, err = d.docker.WaitContainer(id)
-		return err
-	})
-	return c, err
+	return err
 }
 
 func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
