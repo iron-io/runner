@@ -213,7 +213,12 @@ func (drv *DockerDriver) collectStats(ctx context.Context, container string, tas
 			Done:   done, // A flag that enables stopping the stats operation
 		})
 		if err != nil {
-			logrus.WithError(err).WithFields(logrus.Fields{"container": container, "task_id": task.Id()}).Error("error streaming docker stats for task")
+			select {
+			case <-ctx.Done():
+				// Container is stopped, errors are spurious.
+			default:
+				logrus.WithError(err).WithFields(logrus.Fields{"container": container, "task_id": task.Id()}).Error("error streaming docker stats for task")
+			}
 			return
 		}
 	}()
