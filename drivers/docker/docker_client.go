@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"golang.org/x/net/context"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -108,7 +107,6 @@ func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err er
 
 func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
 	retry(func() error {
-		opts.Context, _ = context.WithTimeout(context.Background(), 60*time.Minute)
 		err = d.docker.PullImage(opts, auth)
 		return err
 	})
