@@ -638,7 +638,8 @@ func (drv *DockerDriver) cancel(container string) {
 		err := drv.docker.StopContainer(container, 30)
 		stopTimer.Measure()
 		_, notRunning := err.(*docker.ContainerNotRunning)
-		if err == nil || notRunning {
+		dockerErr, ok := err.(*docker.Error)
+		if err == nil || notRunning || ok && (dockerErr.Status == 404 || dockerErr.Status == 304) {
 			// 204=ok, 304=stopped already, 404=no container -> OK
 			// TODO if docker dies this might run forever but we kind of want it to?
 			break
