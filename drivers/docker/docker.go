@@ -151,26 +151,32 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	mwOut, mwErr := task.Logger()
 
 	// attach could sever before the container has exited, so loopy loop
-	for {
-		timer := drv.NewTimer("docker", "attach_container", 1)
-		err = drv.docker.AttachToContainer(docker.AttachToContainerOptions{
-			Container: container, OutputStream: mwOut, ErrorStream: mwErr,
-			Stream: true, Logs: true, Stdout: true, Stderr: true})
-		timer.Measure()
-		if err != nil {
-			return nil, &dockerError{err}
-		}
-
-		// TODO need to ensure task is no longer running
-		status, err, done := drv.status(ctx, container, sentence)
-		if done {
-			taskTimer.Measure()
-			return &runResult{
-				StatusValue: status,
-				Err:         err,
-			}, nil
-		}
+	timer := drv.NewTimer("docker", "attach_container", 1)
+	waiter, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
+		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
+		Stream: true, Logs: true, Stdout: true, Stderr: true})
+	timer.Measure()
+	if err != nil {
+		return nil, &dockerError{err}
 	}
+
+	// can discard error, inspect will tell us about the task and wait will retry under the hood
+	drv.docker.WaitContainer(ctx, container)
+	taskTimer.Measure()
+
+	waiter.Close()
+	err = waiter.Wait()
+	if err != nil {
+		// TODO need to make sure this error isn't just a context error or something we can ignore
+		log.WithError(err).Error("attach to container returned error, task may be missing logs")
+	}
+
+	// TODO need to ensure task is no longer running
+	status, err := drv.status(ctx, container, sentence)
+	return &runResult{
+		StatusValue: status,
+		Err:         err,
+	}, nil
 }
 
 // watch for cancel or timeout and kill process.
@@ -592,12 +598,12 @@ func isAuthError(err error) bool {
 	return false
 }
 
-func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error, done bool) {
+func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error) {
 	log := titancommon.Logger(ctx)
 
 	select {
 	case status := <-sentence: // use this if timed out / canceled
-		return status, nil, true
+		return status, nil
 	default:
 	}
 
@@ -606,18 +612,19 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 		// this is pretty sad, but better to say we had an error than to not.
 		// task has run to completion and logs will be uploaded, user can decide
 		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container for OOM check")
-		return drivers.StatusError, &dockerError{err}, true
+		return drivers.StatusError, &dockerError{err}
 	}
 	exitCode := cinfo.State.ExitCode
 	if cinfo.State.Running {
-		return "", nil, false
+		log.Warn("getting status of task that is still running, need to fix this")
+		return "", nil
 	}
 
 	switch exitCode {
 	default:
-		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode), true
+		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode)
 	case 0:
-		return drivers.StatusSuccess, nil, true
+		return drivers.StatusSuccess, nil
 	case 137: // OOM
 		if !cinfo.State.OOMKilled {
 			// It is possible that the host itself is running out of memory and
@@ -628,7 +635,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 			drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
 		}
 
-		return drivers.StatusKilled, drivers.ErrOutOfMemory, true
+		return drivers.StatusKilled, drivers.ErrOutOfMemory
 	}
 }
 
@@ -638,8 +645,9 @@ func (drv *DockerDriver) cancel(container string) {
 		err := drv.docker.StopContainer(container, 30)
 		stopTimer.Measure()
 		_, notRunning := err.(*docker.ContainerNotRunning)
+		_, containerNotFound := err.(*docker.NoSuchContainer)
 		dockerErr, ok := err.(*docker.Error)
-		if err == nil || notRunning || ok && (dockerErr.Status == 404 || dockerErr.Status == 304) {
+		if err == nil || notRunning || containerNotFound || ok && (dockerErr.Status == 404 || dockerErr.Status == 304) {
 			// 204=ok, 304=stopped already, 404=no container -> OK
 			// TODO if docker dies this might run forever but we kind of want it to?
 			break

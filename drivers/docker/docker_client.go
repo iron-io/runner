@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"golang.org/x/net/context"
+	"net"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -16,7 +18,8 @@ import (
 type dockerClient interface {
 	// Each of these are github.com/fsouza/go-dockerclient methods
 
-	AttachToContainer(opts docker.AttachToContainerOptions) error
+	AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (docker.CloseWaiter, error)
+	WaitContainer(ctx context.Context, id string) (int, error)
 	StartContainer(id string, hostConfig *docker.HostConfig) error
 	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
 	RemoveContainer(opts docker.RemoveContainerOptions) error
@@ -51,7 +54,7 @@ func retry(f func() error) {
 	then := time.Now()
 	for time.Since(then) < 10*time.Minute { // retry for 10 minutes
 		err := f()
-		if isTemporary(err) || isDocker500(err) {
+		if isTemporary(err) || isDocker500(err) || isNet(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
 			continue
@@ -73,12 +76,42 @@ func isDocker500(err error) bool {
 	return ok && derr.Status >= 500
 }
 
-func (d *dockerWrap) AttachToContainer(opts docker.AttachToContainerOptions) (err error) {
+func isNet(err error) bool {
+	_, ok := err.(net.Error)
+	return ok
+}
+
+func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (w docker.CloseWaiter, err error) {
 	retry(func() error {
-		err = d.docker.AttachToContainer(opts)
+		w, err = d.docker.AttachToContainerNonBlocking(opts)
 		return err
 	})
-	return err
+	return w, err
+}
+
+func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, err error) {
+	// special one, since fsouza doesn't have context on this one and tasks can
+	// take longer than 20 minutes
+	for {
+		// backup bail mechanism so this doesn't sit here forever
+		select {
+		case <-ctx.Done():
+		default:
+		}
+
+		retry(func() error {
+			code, err = d.docker.WaitContainer(id)
+			return err
+		})
+		// must be 200, 404 500 or net error -- only 200 & 404 are cool, otherwise retry
+		_, containerNotFound := err.(*docker.NoSuchContainer)
+		dockerErr, ok := err.(*docker.Error)
+		if err == nil || containerNotFound || (ok && dockerErr.Status == 404) {
+			break
+		}
+		logrus.WithError(err).Warn("retrying wait container (this is ok)")
+	}
+	return code, err
 }
 
 func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
