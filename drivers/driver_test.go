@@ -6,6 +6,7 @@ import (
 )
 
 func TestAverage(t *testing.T) {
+	t.Parallel()
 	start := time.Date(2016, 8, 11, 0, 0, 0, 0, time.UTC)
 	stats := make([]Stat, 10)
 	for i := 0; i < len(stats); i++ {
@@ -32,6 +33,7 @@ func TestAverage(t *testing.T) {
 }
 
 func TestDecimate(t *testing.T) {
+	t.Parallel()
 	start := time.Now()
 	stats := make([]Stat, 480)
 	for i := range stats {
