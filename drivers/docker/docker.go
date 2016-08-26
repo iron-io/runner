@@ -287,9 +287,14 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 	err = drv.docker.StartContainer(cID, nil)
 	startTimer.Measure()
 	if err != nil {
-		// Remove the created container since we couldn't start it.
-		drv.Inc("docker", "container_start_error", 1, 1.0)
-		return "", &dockerError{err}
+		dockerErr, ok := err.(*docker.Error)
+		_, containerAlreadyRunning := err.(*docker.ContainerAlreadyRunning)
+		if containerAlreadyRunning || (ok && dockerErr.Status == 304) {
+			// 304=container already started -- so we can ignore error
+		} else {
+			drv.Inc("docker", "container_start_error", 1, 1.0)
+			return "", &dockerError{err}
+		}
 	}
 	return cID, nil
 }
@@ -344,21 +349,24 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	}
 
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
-	c, err := drv.docker.CreateContainer(container)
+	_, err = drv.docker.CreateContainer(container)
 	createTimer.Measure()
 	if err != nil {
-		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
-			"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
-			"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
-		}).WithError(err).Error("Could not create container")
-		drv.Inc("docker", "container_create_error", 1, 1.0)
-		// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
-		// via certain invalid args, tbd
-		return nil, &dockerError{err}
+		// since we retry under the hood, if the container gets created and retry fails, we can just ignore error
+		if err != docker.ErrContainerAlreadyExists {
+			logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
+				"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
+				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
+			}).WithError(err).Error("Could not create container")
+			drv.Inc("docker", "container_create_error", 1, 1.0)
+			// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
+			// via certain invalid args, tbd
+			return nil, &dockerError{err}
+		}
 	}
 
 	// discard removal error
-	return &closer{func() error { drv.removeContainer(c.ID); return nil }}, nil
+	return &closer{func() error { drv.removeContainer(containerID(task)); return nil }}, nil
 }
 
 type closer struct {
