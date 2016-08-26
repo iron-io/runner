@@ -19,7 +19,6 @@ func (tsw *testSliceWriter) Write(p []byte) (n int, err error) {
 }
 
 func TestLineWriter(t *testing.T) {
-	t.Parallel()
 	tsw := &testSliceWriter{}
 	lw := NewLineWriter(tsw)
 
@@ -51,7 +50,6 @@ func TestLineWriter(t *testing.T) {
 }
 
 func TestHeadWriter(t *testing.T) {
-	t.Parallel()
 	data := []byte("the quick\n brown\n fox jumped\n over the\n lazy dog.")
 	w := NewHeadLinesWriter(3)
 	_, err := w.Write(data[:4])
@@ -95,13 +93,11 @@ func testTail(t *testing.T, n int, output []byte, writes ...[]byte) {
 }
 
 func TestTailWriter(t *testing.T) {
-	t.Parallel()
 	inputs := [][]byte{[]byte("a\nb\n"), []byte("gh"), []byte("\n")}
 	testTail(t, 2, []byte("b\ngh\n"), inputs...)
 }
 
 func TestZeroAndOneTailWriter(t *testing.T) {
-	t.Parallel()
 	// zero line writer, with only single line added to it should return empty buffer.
 	testTail(t, 0, []byte(""), []byte("Hello World\n"))
 	testTail(t, 0, []byte(""), []byte("Hello World"))
@@ -122,7 +118,6 @@ func TestZeroAndOneTailWriter(t *testing.T) {
 }
 
 func TestTailWriterTrailing(t *testing.T) {
-	t.Parallel()
 	input1 := []byte("a\nb\nc\nd\ne")
 	input2 := []byte("a\nb\nc\nd\ne\n")
 	w1 := NewTailLinesWriter(4)
