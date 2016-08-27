@@ -648,7 +648,9 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 }
 
 func (drv *DockerDriver) cancel(container string) {
-	for {
+	// retry a few times to try to clean up, if we fail to clean up
+	// docker starts going sideways :/
+	for i := 0; i < 5; i++ {
 		stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
 		err := drv.docker.StopContainer(container, 30)
 		stopTimer.Measure()
@@ -661,6 +663,6 @@ func (drv *DockerDriver) cancel(container string) {
 			break
 		}
 		time.Sleep(1 * time.Second) // TODO plumb clock?
-		logrus.WithError(err).WithFields(logrus.Fields{"container": container, "errType": fmt.Sprintf("%T", err)}).Error("could not kill container, retrying indefinitely")
+		logrus.WithError(err).WithFields(logrus.Fields{"container": container, "errType": fmt.Sprintf("%T", err)}).Error("could not kill container, retrying")
 	}
 }
