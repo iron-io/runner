@@ -104,15 +104,25 @@ func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, er
 			code, err = d.docker.WaitContainer(id)
 			return err
 		})
-		// must be 200, 404 500 or net error -- only 200 & 404 are cool, otherwise retry
-		_, containerNotFound := err.(*docker.NoSuchContainer)
-		dockerErr, ok := err.(*docker.Error)
-		if err == nil || containerNotFound || (ok && dockerErr.Status == 404) {
+		err = filterNoSuchContainer(err)
+		if err == nil {
 			break
 		}
 		logrus.WithError(err).Warn("retrying wait container (this is ok)")
 	}
 	return code, err
+}
+
+func filterNoSuchContainer(err error) error {
+	if err == nil {
+		return nil
+	}
+	_, containerNotFound := err.(*docker.NoSuchContainer)
+	dockerErr, ok := err.(*docker.Error)
+	if containerNotFound || (ok && dockerErr.Status == 404) {
+		return nil
+	}
+	return err
 }
 
 func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
@@ -136,7 +146,7 @@ func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err er
 		err = d.docker.RemoveContainer(opts)
 		return err
 	})
-	return err
+	return filterNoSuchContainer(err)
 }
 
 func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
@@ -168,7 +178,7 @@ func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
 		err = d.docker.StopContainer(id, timeout)
 		return err
 	})
-	return err
+	return filterNoSuchContainer(err)
 }
 
 func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {

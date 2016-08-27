@@ -661,6 +661,6 @@ func (drv *DockerDriver) cancel(container string) {
 			break
 		}
 		time.Sleep(1 * time.Second) // TODO plumb clock?
-		logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("could not kill container, retrying indefinitely")
+		logrus.WithError(err).WithFields(logrus.Fields{"container": container, "errType": fmt.Sprintf("%T", err)}).Error("could not kill container, retrying indefinitely")
 	}
 }
