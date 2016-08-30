@@ -343,7 +343,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 		container.Config.WorkingDir = wd
 	}
 
-	err := drv.EnsureUsableImage(ctx, task)
+	err := drv.ensureUsableImage(ctx, task)
 	if err != nil {
 		return nil, err
 	}
@@ -502,7 +502,7 @@ func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
 	return configs
 }
 
-func (drv *DockerDriver) EnsureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
+func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 
@@ -524,6 +524,19 @@ func (drv *DockerDriver) EnsureUsableImage(ctx context.Context, task drivers.Con
 
 	// Image is available locally. If the credentials presented by the tasks are
 	// known to be good for this image, allow it, otherwise check with registry.
+	configs := usableConfigs(task)
+	if drv.allowedToUseImage(ctx, repoImage, configs) {
+		return nil
+	}
+
+	return drv.checkAgainstRegistry(ctx, task, configs)
+}
+
+func (drv *DockerDriver) EnsureImageExists(ctx context.Context, task drivers.ContainerTask) error {
+	repo, tag := normalizedImage(task.Image())
+	repoImage := fmt.Sprintf("%s:%s", repo, tag)
+
+	// Check with registry.
 	configs := usableConfigs(task)
 	if drv.allowedToUseImage(ctx, repoImage, configs) {
 		return nil
