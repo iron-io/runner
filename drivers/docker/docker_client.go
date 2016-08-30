@@ -1,13 +1,12 @@
 package docker
 
 import (
-	"golang.org/x/net/context"
-	"net"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/titan/runner/agent"
+	"golang.org/x/net/context"
 )
 
 // wrap docker client calls so we can retry 500s, kind of sucks but fsouza doesn't
@@ -55,7 +54,7 @@ func retry(f func() error) {
 	limit := 10 * time.Minute
 	for time.Since(then) < limit {
 		err := f()
-		if isTemporary(err) || isDocker500(err) || isNet(err) {
+		if agent.IsTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
 			continue
@@ -65,21 +64,9 @@ func retry(f func() error) {
 	logrus.Warnf("retrying on docker errors exceeded %s, restart docker or rotate this instance?", limit)
 }
 
-func isTemporary(err error) bool {
-	terr, ok := err.(interface {
-		Temporary() bool
-	})
-	return ok && terr.Temporary()
-}
-
 func isDocker500(err error) bool {
 	derr, ok := err.(*docker.Error)
 	return ok && derr.Status >= 500
-}
-
-func isNet(err error) bool {
-	_, ok := err.(net.Error)
-	return ok
 }
 
 func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (w docker.CloseWaiter, err error) {
