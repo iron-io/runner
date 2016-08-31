@@ -1,4 +1,4 @@
-FROM docker:1.12-rc-dind
+FROM docker:1.12.1-dind
 
 RUN apk update && apk upgrade && apk add --no-cache ca-certificates
 
