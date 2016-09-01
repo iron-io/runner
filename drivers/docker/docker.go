@@ -124,13 +124,7 @@ func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver 
 // The docker driver will attempt to cast the task to a Auther. If that succeeds, private image support is available. See the Auther interface for how to implement this.
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
 	log := titancommon.Logger(ctx)
-	container, err := drv.startTask(ctx, task)
-	if err != nil {
-		return nil, err
-	}
-
-	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
-
+	container := containerID(task)
 	t := drv.conf.DefaultTimeout
 	if n := task.Timeout(); n != 0 {
 		t = n
@@ -159,6 +153,13 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	if err != nil {
 		return nil, &dockerError{err}
 	}
+
+	_, err = drv.startTask(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+
+	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
 
 	// can discard error, inspect will tell us about the task and wait will retry under the hood
 	drv.docker.WaitContainer(ctx, container)
