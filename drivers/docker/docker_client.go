@@ -112,6 +112,20 @@ func filterNoSuchContainer(err error) error {
 	return err
 }
 
+func filterNotRunning(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	_, containerNotRunning := err.(*docker.ContainerNotRunning)
+	dockerErr, ok := err.(*docker.Error)
+	if containerNotRunning || (ok && dockerErr.Status == 304) {
+		return nil
+	}
+
+	return err
+}
+
 func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
 	retry(func() error {
 		err = d.docker.StartContainer(id, hostConfig)
@@ -165,7 +179,7 @@ func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
 		err = d.docker.StopContainer(id, timeout)
 		return err
 	})
-	return filterNoSuchContainer(err)
+	return filterNotRunning(filterNoSuchContainer(err))
 }
 
 func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {
