@@ -5,7 +5,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
-	"github.com/iron-io/titan/runner/agent"
+	"github.com/iron-io/worker/runner/agent"
 	"golang.org/x/net/context"
 )
 
