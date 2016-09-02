@@ -403,6 +403,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 	defer pullTimer.Measure()
 	// try all user creds until we get one that works
+	fmt.Println(len(configs), configs)
 	for i, config := range configs {
 		if allower, ok := task.(AllowImager); ok {
 			err := allower.AllowImagePull(repoImage, config)
