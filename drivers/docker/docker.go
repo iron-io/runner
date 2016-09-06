@@ -349,7 +349,6 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("Got usable image", err)
 
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	_, err = drv.docker.CreateContainer(container)
@@ -405,7 +404,6 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	defer pullTimer.Measure()
 	// try all user creds until we get one that works
 	for i, config := range configs {
-		fmt.Println("Trying ", i)
 		if allower, ok := task.(AllowImager); ok {
 			err := allower.AllowImagePull(repoImage, config)
 			if agent.IsUserVisibleError(err) {
@@ -428,7 +426,6 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
 			continue
 		}
-		fmt.Println("Image pulled successfully!")
 		return drv.docker.InspectImage(repoImage)
 	}
 
