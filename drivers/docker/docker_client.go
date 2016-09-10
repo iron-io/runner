@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -53,7 +54,7 @@ func retry(f func() error) {
 	then := time.Now()
 	limit := 10 * time.Minute
 	for time.Since(then) < limit {
-		err := f()
+		err := filter(f())
 		if agent.IsTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
@@ -67,6 +68,19 @@ func retry(f func() error) {
 func isDocker500(err error) bool {
 	derr, ok := err.(*docker.Error)
 	return ok && derr.Status >= 500
+}
+
+// some 500s are totally cool
+func filter(err error) error {
+	// "API error (500): {\"message\":\"service endpoint with name task-57d722ecdecb9e7be16aff17 already exists\"}\n" -> ok since container exists
+	switch {
+	default:
+		return err
+	case err == nil:
+		return err
+	case strings.Contains(err.Error(), "service endpoint with name"):
+	}
+	return nil
 }
 
 func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (w docker.CloseWaiter, err error) {
