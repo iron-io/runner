@@ -63,25 +63,6 @@ type AllowImager interface {
 	AllowImage(repo string, info *docker.Image) error
 }
 
-// Certain Docker errors are unrecoverable in the sense that the daemon is
-// having problems and this driver can no longer continue.
-type dockerError struct {
-	error
-}
-
-func (d *dockerError) Unrecoverable() bool {
-	// Allow nests so we don't have to reason about the error tree.
-	if sub, ok := d.error.(*dockerError); ok {
-		return sub.Unrecoverable()
-	}
-
-	// We don't have anything unrecoverable yet.
-	return false
-}
-
-func (d *dockerError) UserVisible() bool { return agent.IsUserVisibleError(d.error) }
-func (d *dockerError) UserError() error  { return d.error.(agent.UserVisibleError).UserError() }
-
 type runResult struct {
 	Err         error
 	StatusValue string
@@ -151,7 +132,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		Stream: true, Logs: true, Stdout: true, Stderr: true})
 	timer.Measure()
 	if err != nil {
-		return nil, &dockerError{err}
+		return nil, err
 	}
 
 	_, err = drv.startTask(ctx, task)
@@ -295,7 +276,7 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 			// 304=container already started -- so we can ignore error
 		} else {
 			drv.Inc("docker", "container_start_error", 1, 1.0)
-			return "", &dockerError{err}
+			return "", err
 		}
 	}
 	return cID, nil
@@ -353,6 +334,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	_, err = drv.docker.CreateContainer(container)
 	createTimer.Measure()
+	logrus.WithError(err).Debug("create container error")
 	if err != nil {
 		// since we retry under the hood, if the container gets created and retry fails, we can just ignore error
 		if err != docker.ErrContainerAlreadyExists {
@@ -363,7 +345,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 			drv.Inc("docker", "container_create_error", 1, 1.0)
 			// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
 			// via certain invalid args, tbd
-			return nil, &dockerError{err}
+			return nil, err
 		}
 	}
 
@@ -420,7 +402,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag, Context: ctx}, config)
 		if err == docker.ErrConnectionRefused {
 			// If we couldn't connect to Docker, bail immediately.
-			return nil, &dockerError{err}
+			return nil, err
 		} else if err != nil {
 			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
@@ -431,8 +413,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 
 	// It is possible that errors other than ErrConnectionRefused or "image not
 	// found" (also means auth failed) errors can occur. These should not be bubbled up.
-	err := fmt.Errorf("Image '%s' does not exist or authentication failed.", repo)
-	return nil, agent.UserError(err, err)
+	return nil, agent.UserError(fmt.Errorf("Image '%s' does not exist or authentication failed.", repo))
 }
 
 func normalizedImage(image string) (string, string) {
@@ -515,7 +496,7 @@ func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.Con
 	}
 
 	if err != nil {
-		return &dockerError{err}
+		return err
 	}
 
 	if allower, ok := task.(AllowImager); ok {
@@ -584,8 +565,7 @@ func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.
 		return nil
 	}
 
-	err = fmt.Errorf("Image '%s' does not exist or authentication failed.", repo)
-	return agent.UserError(err, err)
+	return agent.UserError(fmt.Errorf("Image '%s' does not exist or authentication failed.", repo))
 }
 
 // Only support HTTPS accessible registries for now.
@@ -634,8 +614,8 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 	if err != nil {
 		// this is pretty sad, but better to say we had an error than to not.
 		// task has run to completion and logs will be uploaded, user can decide
-		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container for OOM check")
-		return drivers.StatusError, &dockerError{err}
+		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container")
+		return drivers.StatusError, err
 	}
 	exitCode := cinfo.State.ExitCode
 	if cinfo.State.Running {
@@ -645,7 +625,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 
 	switch exitCode {
 	default:
-		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode)
+		return drivers.StatusError, agent.UserError(fmt.Errorf("exit code %d", exitCode))
 	case 0:
 		return drivers.StatusSuccess, nil
 	case 137: // OOM

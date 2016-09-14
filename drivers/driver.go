@@ -31,7 +31,7 @@ type Driver interface {
 	// cancelling the context.
 	// In addition, Run() should respect the task's timeout.
 	Run(ctx context.Context, task ContainerTask) (RunResult, error)
-	EnsureImageExists(ctx context.Context, task ContainerTask) (error)
+	EnsureImageExists(ctx context.Context, task ContainerTask) error
 }
 
 // RunResult indicates only the final state of the task.
@@ -88,8 +88,17 @@ type Stat struct {
 // Set of acceptable errors coming from container engines to TaskRunner
 var (
 	// ErrOutOfMemory for OOM in container engine
-	ErrOutOfMemory = errors.New("out of memory error")
+	ErrOutOfMemory = userError(errors.New("out of memory error"))
 )
+
+// TODO agent.UserError should be elsewhere
+func userError(err error) error { return &ue{err} }
+
+type ue struct {
+	error
+}
+
+func (u *ue) UserVisible() bool { return true }
 
 // TODO: ensure some type is applied to these statuses.
 const (
