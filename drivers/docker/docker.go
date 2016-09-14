@@ -64,11 +64,10 @@ type AllowImager interface {
 }
 
 type runResult struct {
-	Err         error
+	error
 	StatusValue string
 }
 
-func (runResult *runResult) Error() error   { return runResult.Err }
 func (runResult *runResult) Status() string { return runResult.StatusValue }
 
 type DockerDriver struct {
@@ -157,7 +156,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	status, err := drv.status(ctx, container, sentence)
 	return &runResult{
 		StatusValue: status,
-		Err:         err,
+		error:       err,
 	}, nil
 }
 

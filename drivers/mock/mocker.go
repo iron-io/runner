@@ -28,7 +28,7 @@ func (m *Mocker) Run(ctx context.Context, task drivers.ContainerTask) (drivers.R
 		return nil, fmt.Errorf("Mocker error! Bad.")
 	}
 	return &runResult{
-		Err:         nil,
+		error:       nil,
 		StatusValue: "success",
 	}, nil
 }
@@ -38,18 +38,10 @@ func (m *Mocker) EnsureImageExists(ctx context.Context, task drivers.ContainerTa
 }
 
 type runResult struct {
-	Err         error
+	error
 	StatusValue string
-}
-
-func (runResult *runResult) Error() error {
-	return runResult.Err
 }
 
 func (runResult *runResult) Status() string {
 	return runResult.StatusValue
-}
-
-func (runResult *runResult) Close() error {
-	return nil
 }
