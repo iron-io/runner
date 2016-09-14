@@ -68,7 +68,14 @@ type runResult struct {
 	StatusValue string
 }
 
-func (runResult *runResult) Status() string { return runResult.StatusValue }
+func (r *runResult) Error() string {
+	if r.error == nil {
+		return ""
+	}
+	return r.error.Error()
+}
+
+func (r *runResult) Status() string { return r.StatusValue }
 
 type DockerDriver struct {
 	conf     drivers.Config
