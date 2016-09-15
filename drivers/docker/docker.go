@@ -75,7 +75,8 @@ func (r *runResult) Error() string {
 	return r.error.Error()
 }
 
-func (r *runResult) Status() string { return r.StatusValue }
+func (r *runResult) Status() string     { return r.StatusValue }
+func (r *sysErrRunResult) UserVisible() { return agent.IsUserVisibleError(r.error) }
 
 type DockerDriver struct {
 	conf     drivers.Config
