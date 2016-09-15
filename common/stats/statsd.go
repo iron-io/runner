@@ -1,6 +1,9 @@
 package stats
 
 import (
+	"bytes"
+	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -46,6 +49,20 @@ func (pkc *prefixKeyCreator) Key(stat string) string {
 	return prefix + "." + stat
 }
 
+func whoami() string {
+	a, _ := net.InterfaceAddrs()
+	for i := range a {
+		// is a textual representation of an IPv4 address
+		z, _, err := net.ParseCIDR(a[i].String())
+		if a[i].Network() == "ip+net" && err == nil && z.To4() != nil {
+			if !bytes.Equal(z, net.ParseIP("127.0.0.1")) {
+				return strings.Replace(fmt.Sprintf("%v", z), ".", "_", -1)
+			}
+		}
+	}
+	return "127_0_0_1" // shrug
+}
+
 // The config.Prefix is sent before each message and can be used to set API
 // keys. The prefix is used as the key prefix.
 // If config is nil, creates a noop reporter.
@@ -57,6 +74,7 @@ func NewStatsd(config *StatsdConfig) (*theStatsdReporter, error) {
 	var err error
 	if config != nil {
 		// 512 for now since we are sending to hostedgraphite over the internet.
+		config.Prefix += "." + whoami()
 		client, err = statsd.NewBufferedClient(config.StatsdUdpTarget, config.Prefix, time.Duration(config.Interval)*time.Second, 512)
 	} else {
 		client, err = statsd.NewNoopClient()
