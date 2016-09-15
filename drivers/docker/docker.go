@@ -632,7 +632,8 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 
 	switch exitCode {
 	default:
-		return drivers.StatusError, agent.UserError(fmt.Errorf("exit code %d", exitCode))
+		// TODO exit code error masks log output if made user friendly, but if there is no log output then message will be left blank (is it ok?)
+		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode)
 	case 0:
 		return drivers.StatusSuccess, nil
 	case 137: // OOM
