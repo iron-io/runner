@@ -15,9 +15,6 @@ func StartReportingMemoryAndGC(reporter Statter, d time.Duration) {
 			runtime.ReadMemStats(&ms)
 
 			prefix := "runtime"
-			if hostname, err := os.Hostname(); err == nil {
-				prefix += "." + AsStatField(hostname)
-			}
 
 			reporter.Measure(prefix, "allocated", int64(ms.Alloc), 1.0)
 			reporter.Measure(prefix, "allocated.heap", int64(ms.HeapAlloc), 1.0)
