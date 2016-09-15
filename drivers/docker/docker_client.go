@@ -82,6 +82,7 @@ func filter(err error) error {
 		return err
 	case strings.Contains(err.Error(), "service endpoint with name"):
 	}
+	logrus.WithError(err).Warn("filtering error")
 	return nil
 }
 
