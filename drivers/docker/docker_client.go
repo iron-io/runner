@@ -1,6 +1,10 @@
+// +build go1.7
 package docker
 
 import (
+	"crypto/tls"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -33,21 +37,67 @@ type dockerClient interface {
 
 // TODO: switch to github.com/docker/engine-api
 func newClient(env *common.Environment) dockerClient {
+	// TODO this was much easier, don't need special settings at the moment
 	// docker, err := docker.NewClient(conf.Docker)
 	client, err := docker.NewClientFromEnv()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't create docker client")
 	}
 
-	// NOTE add granularity to things like pull, should not effect
-	// hijacked / streaming endpoints
+	client.HTTPClient = &http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 1 * time.Minute,
+			}).Dial,
+			TLSClientConfig: &tls.Config{
+				ClientSessionCache: tls.NewLRUClientSessionCache(8192),
+			},
+			TLSHandshakeTimeout:   10 * time.Second,
+			MaxIdleConnsPerHost:   512,
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConns:          512,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
 	client.SetTimeout(120 * time.Second)
 
-	return &dockerWrap{client, env}
+	// get 2 clients, one with a small timeout, one with a large timeout
+	// long timeout used for:
+	// * pull
+	// * create_container
+
+	clientLongTimeout, err := docker.NewClientFromEnv()
+	if err != nil {
+		logrus.WithError(err).Fatal("couldn't create docker client")
+	}
+
+	clientLongTimeout.HTTPClient = &http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 1 * time.Minute,
+			}).Dial,
+			TLSClientConfig: &tls.Config{
+				ClientSessionCache: tls.NewLRUClientSessionCache(8192),
+			},
+			TLSHandshakeTimeout:   10 * time.Second,
+			MaxIdleConnsPerHost:   512,
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConns:          512,
+			IdleConnTimeout:       90 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+	client.SetTimeout(30 * time.Minute) // TODO ? this seems high but... hub can be really slow
+
+	return &dockerWrap{client, clientLongTimeout, env}
 }
 
 type dockerWrap struct {
-	docker *docker.Client
+	docker            *docker.Client
+	dockerLongTimeout *docker.Client
 	*common.Environment
 }
 
@@ -180,7 +230,7 @@ func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (e
 
 func (d *dockerWrap) CreateContainer(opts docker.CreateContainerOptions) (c *docker.Container, err error) {
 	err = d.retry(func() error {
-		c, err = d.docker.CreateContainer(opts)
+		c, err = d.dockerLongTimeout.CreateContainer(opts)
 		return err
 	})
 	return c, err
@@ -196,7 +246,7 @@ func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err er
 
 func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
 	err = d.retry(func() error {
-		err = d.docker.PullImage(opts, auth)
+		err = d.dockerLongTimeout.PullImage(opts, auth)
 		return err
 	})
 	return err
