@@ -6,6 +6,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
+	"github.com/iron-io/worker/common"
 	"github.com/iron-io/worker/runner/agent"
 	"golang.org/x/net/context"
 )
@@ -31,7 +32,7 @@ type dockerClient interface {
 }
 
 // TODO: switch to github.com/docker/engine-api
-func newClient() dockerClient {
+func newClient(env *common.Environment) dockerClient {
 	// docker, err := docker.NewClient(conf.Docker)
 	client, err := docker.NewClientFromEnv()
 	if err != nil {
@@ -42,27 +43,33 @@ func newClient() dockerClient {
 	// hijacked / streaming endpoints
 	client.SetTimeout(120 * time.Second)
 
-	return &dockerWrap{client}
+	return &dockerWrap{client, env}
 }
 
 type dockerWrap struct {
 	docker *docker.Client
+	*common.Environment
 }
 
-func retry(f func() error) error {
+func (d *dockerWrap) retry(f func() error) error {
 	var b agent.Backoff
 	then := time.Now()
 	limit := 10 * time.Minute
 	var err error
 	for time.Since(then) < limit {
+		timer := d.NewTimer("docker", "latency", 1)
 		err = filter(f())
+		timer.Measure()
 		if agent.IsTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
+			d.Inc("docker", "temp_error", 1, 1)
 			continue
 		}
+		d.Inc("docker", "error", 1, 1)
 		return err
 	}
+	d.Inc("docker", "fail", 1, 1)
 	logrus.WithError(err).Warnf("retrying on docker errors exceeded %s, restart docker or rotate this instance?", limit)
 	return err
 }
@@ -70,6 +77,16 @@ func retry(f func() error) error {
 func isDocker500(err error) bool {
 	derr, ok := err.(*docker.Error)
 	return ok && derr.Status >= 500
+}
+
+type temporary struct {
+	error
+}
+
+func (t *temporary) Temporary() bool { return true }
+
+func temp(err error) error {
+	return &temporary{err}
 }
 
 // some 500s are totally cool
@@ -87,8 +104,12 @@ func filter(err error) error {
 }
 
 func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (w docker.CloseWaiter, err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		w, err = d.docker.AttachToContainerNonBlocking(opts)
+		if err != nil {
+			// always retry if attach errors, task is running, we want logs!
+			err = temp(err)
+		}
 		return err
 	})
 	return w, err
@@ -104,7 +125,7 @@ func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, er
 		default:
 		}
 
-		err = retry(func() error {
+		err = d.retry(func() error {
 			code, err = d.docker.WaitContainer(id)
 			return err
 		})
@@ -124,6 +145,7 @@ func filterNoSuchContainer(err error) error {
 	_, containerNotFound := err.(*docker.NoSuchContainer)
 	dockerErr, ok := err.(*docker.Error)
 	if containerNotFound || (ok && dockerErr.Status == 404) {
+		logrus.WithError(err).Error("filtering error")
 		return nil
 	}
 	return err
@@ -137,6 +159,7 @@ func filterNotRunning(err error) error {
 	_, containerNotRunning := err.(*docker.ContainerNotRunning)
 	dockerErr, ok := err.(*docker.Error)
 	if containerNotRunning || (ok && dockerErr.Status == 304) {
+		logrus.WithError(err).Error("filtering error")
 		return nil
 	}
 
@@ -144,15 +167,19 @@ func filterNotRunning(err error) error {
 }
 
 func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		err = d.docker.StartContainer(id, hostConfig)
+		if _, ok := err.(*docker.NoSuchContainer); ok {
+			// for some reason create will sometimes return successfully then say no such container here. wtf. so just retry like normal
+			return temp(err)
+		}
 		return err
 	})
 	return err
 }
 
 func (d *dockerWrap) CreateContainer(opts docker.CreateContainerOptions) (c *docker.Container, err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		c, err = d.docker.CreateContainer(opts)
 		return err
 	})
@@ -160,7 +187,7 @@ func (d *dockerWrap) CreateContainer(opts docker.CreateContainerOptions) (c *doc
 }
 
 func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		err = d.docker.RemoveContainer(opts)
 		return err
 	})
@@ -168,7 +195,7 @@ func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err er
 }
 
 func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		err = d.docker.PullImage(opts, auth)
 		return err
 	})
@@ -176,7 +203,7 @@ func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthCon
 }
 
 func (d *dockerWrap) InspectImage(name string) (i *docker.Image, err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		i, err = d.docker.InspectImage(name)
 		return err
 	})
@@ -184,7 +211,7 @@ func (d *dockerWrap) InspectImage(name string) (i *docker.Image, err error) {
 }
 
 func (d *dockerWrap) InspectContainer(id string) (c *docker.Container, err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		c, err = d.docker.InspectContainer(id)
 		return err
 	})
@@ -192,7 +219,7 @@ func (d *dockerWrap) InspectContainer(id string) (c *docker.Container, err error
 }
 
 func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		err = d.docker.StopContainer(id, timeout)
 		return err
 	})
@@ -200,7 +227,7 @@ func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
 }
 
 func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {
-	err = retry(func() error {
+	err = d.retry(func() error {
 		err = d.docker.Stats(opts)
 		return err
 	})

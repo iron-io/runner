@@ -13,7 +13,8 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/heroku/docker-registry-client/registry"
-	titancommon "github.com/iron-io/worker/common"
+	"github.com/iron-io/go/common/stats"
+	"github.com/iron-io/worker/common"
 	"github.com/iron-io/worker/runner/agent"
 	"github.com/iron-io/worker/runner/drivers"
 	"golang.org/x/net/context"
@@ -90,10 +91,10 @@ type DockerDriver struct {
 	// customers should also revoke the user on the Tasker.
 	authCacheLock sync.RWMutex
 	authCache     map[string][]docker.AuthConfiguration
-	*titancommon.Environment
+	*common.Environment
 }
 
-func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver {
+func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't resolve hostname")
@@ -101,7 +102,7 @@ func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver 
 
 	return &DockerDriver{
 		conf:        conf,
-		docker:      newClient(),
+		docker:      newClient(env),
 		hostname:    hostname,
 		authCache:   make(map[string][]docker.AuthConfiguration),
 		Environment: env,
@@ -111,7 +112,7 @@ func NewDocker(env *titancommon.Environment, conf drivers.Config) *DockerDriver 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
 // The docker driver will attempt to cast the task to a Auther. If that succeeds, private image support is available. See the Auther interface for how to implement this.
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
-	log := titancommon.Logger(ctx)
+	log := common.Logger(ctx)
 	container := containerID(task)
 	t := drv.conf.DefaultTimeout
 	if n := task.Timeout(); n != 0 {
@@ -269,7 +270,7 @@ func cherryPick(ds *docker.Stats) drivers.Stat {
 func containerID(task drivers.ContainerTask) string { return "task-" + task.Id() }
 
 func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTask) (dockerId string, err error) {
-	log := titancommon.Logger(ctx)
+	log := common.Logger(ctx)
 	cID := containerID(task)
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
@@ -384,13 +385,16 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		return nil, fmt.Errorf("No AuthConfigurations specified! Did not attempt pull. Bad Auther implementation?")
 	}
 
-	log := titancommon.Logger(ctx)
+	log := common.Logger(ctx)
 
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 	defer pullTimer.Measure()
+
+	drv.Measure("docker", "num_pull_credentials", int64(len(configs)), 1)
+
 	// try all user creds until we get one that works
 	for i, config := range configs {
 		if allower, ok := task.(AllowImager); ok {
@@ -406,17 +410,19 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		}
 
 		// add ctx so that pull doesn't time out (pull can take a while)
+		t := drv.NewTimer("docker", "pull_image_once."+stats.AsStatField(repo), 1)
 		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag, Context: ctx}, config)
-		if err == docker.ErrConnectionRefused {
-			// If we couldn't connect to Docker, bail immediately.
-			return nil, err
-		} else if err != nil {
+		t.Measure()
+		if err != nil {
+			drv.Inc("docker", "pull_error."+stats.AsStatField(repo), 1, 1)
 			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
 			continue
 		}
 		return drv.docker.InspectImage(repoImage)
 	}
+
+	drv.Inc("docker", "pull_failure."+stats.AsStatField(repo), 1, 1)
 
 	// It is possible that errors other than ErrConnectionRefused or "image not
 	// found" (also means auth failed) errors can occur. These should not be bubbled up.
@@ -439,7 +445,7 @@ func normalizedImage(image string) (string, string) {
 // Empty arrays cannot use any image; use a single element default AuthConfiguration for public.
 // Returns true if any of the configs presented exist in the cached configs.
 func (drv *DockerDriver) allowedToUseImage(ctx context.Context, image string, configs []docker.AuthConfiguration) bool {
-	log := titancommon.Logger(ctx)
+	log := common.Logger(ctx)
 	// Tags are not part of the permission model.
 	key, _ := normalizedImage(image)
 	drv.authCacheLock.RLock()
@@ -531,12 +537,11 @@ func (drv *DockerDriver) EnsureImageExists(ctx context.Context, task drivers.Con
 	if drv.allowedToUseImage(ctx, repoImage, configs) {
 		return nil
 	}
-
 	return drv.checkAgainstRegistry(ctx, task, configs)
 }
 
 func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.ContainerTask, configs []docker.AuthConfiguration) error {
-	log := titancommon.Logger(ctx)
+	log := common.Logger(ctx)
 
 	// We need to be able to support multiple registries, so just reconnect
 	// each time (hope to not do this often actually, as this is mostly to
@@ -557,7 +562,9 @@ func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.
 	// lost in subsequent loops.
 	for i, config := range configs {
 		regClient = registryForConfig(config)
+		timer := drv.NewTimer("docker", "registry_manifest_latency", 1)
 		_, err = regClient.Manifest(repo, tag)
+		timer.Measure()
 		if err != nil {
 			if isAuthError(err) {
 				logrus.WithFields(logrus.Fields{"config_index": i}).Info("Credentials not authorized, trying next.")
@@ -609,7 +616,7 @@ func isAuthError(err error) bool {
 }
 
 func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error) {
-	log := titancommon.Logger(ctx)
+	log := common.Logger(ctx)
 
 	select {
 	case status := <-sentence: // use this if timed out / canceled
@@ -637,6 +644,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 	case 0:
 		return drivers.StatusSuccess, nil
 	case 137: // OOM
+		drv.Inc("docker", "oom", 1, 1)
 		if !cinfo.State.OOMKilled {
 			// It is possible that the host itself is running out of memory and
 			// the host kernel killed one of the container processes.
