@@ -113,13 +113,13 @@ func (d *dockerWrap) retry(f func() error) error {
 		if agent.IsTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
-			d.Inc("docker", "temp_error", 1, 1)
+			d.Inc("task", "error.docker", 1, 1)
 			continue
 		}
-		d.Inc("docker", "error", 1, 1)
+		d.Inc("task", "error.docker", 1, 1)
 		return err
 	}
-	d.Inc("docker", "fail", 1, 1)
+	d.Inc("task", "fail.docker", 1, 1)
 	logrus.WithError(err).Warnf("retrying on docker errors exceeded %s, restart docker or rotate this instance?", limit)
 	return err
 }

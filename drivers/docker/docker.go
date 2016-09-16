@@ -283,7 +283,6 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 		if containerAlreadyRunning || (ok && dockerErr.Status == 304) {
 			// 304=container already started -- so we can ignore error
 		} else {
-			drv.Inc("docker", "container_start_error", 1, 1.0)
 			return "", err
 		}
 	}
@@ -350,7 +349,6 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 				"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
 				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
 			}).WithError(err).Error("Could not create container")
-			drv.Inc("docker", "container_create_error", 1, 1.0)
 			// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
 			// via certain invalid args, tbd
 			return nil, err
@@ -394,6 +392,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	defer pullTimer.Measure()
 
 	drv.Measure("docker", "num_pull_credentials", int64(len(configs)), 1)
+	drv.Inc("docker", "image_used."+stats.AsStatField(repoImage), 1, 1)
 
 	// try all user creds until we get one that works
 	for i, config := range configs {
@@ -414,7 +413,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag, Context: ctx}, config)
 		t.Measure()
 		if err != nil {
-			drv.Inc("docker", "pull_error."+stats.AsStatField(repo), 1, 1)
+			drv.Inc("task", "error.pull."+stats.AsStatField(repoImage), 1, 1)
 			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
 			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
 			continue
@@ -422,7 +421,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		return drv.docker.InspectImage(repoImage)
 	}
 
-	drv.Inc("docker", "pull_failure."+stats.AsStatField(repo), 1, 1)
+	drv.Inc("task", "fail.pull."+stats.AsStatField(repoImage), 1, 1)
 
 	// It is possible that errors other than ErrConnectionRefused or "image not
 	// found" (also means auth failed) errors can occur. These should not be bubbled up.
@@ -547,7 +546,7 @@ func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.
 	// each time (hope to not do this often actually, as this is mostly to
 	// prevent abuse).
 	// It may be worth optimising in the future to have a dedicated HTTP client for Docker Hub.
-	drv.Inc("docker", "hit_registry_for_auth_check", 1, 1.0)
+	drv.Inc("docker", "registry_auth_check", 1, 1.0)
 	log.Info("Hitting registry to check image access permission.")
 
 	var regClient *registry.Registry
