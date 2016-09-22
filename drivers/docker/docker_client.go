@@ -70,7 +70,7 @@ func newClient(env *common.Environment) dockerClient {
 
 	clientLongTimeout, err := docker.NewClientFromEnv()
 	if err != nil {
-		logrus.WithError(err).Fatal("couldn't create docker client")
+		logrus.WithError(err).Fatal("couldn't create other docker client")
 	}
 
 	clientLongTimeout.HTTPClient = &http.Client{
