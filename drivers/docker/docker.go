@@ -292,10 +292,8 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
 	var cmd []string
 	if task.Command() != "" {
-		// TODO We may have to move the sh part out to swapi tasker so it can decide between sh-ing .runtask directly vs using the -c form with a command.
-		// TODO: maybe check for spaces or shell meta characters?
-		// There's a possibility that the container doesn't have sh.
-		cmd = []string{"sh", "-c", task.Command()}
+		// NOTE: this is hyper-sensitive and may not be correct like this even, but it passes old tests
+		cmd = strings.Fields(task.Command())
 	}
 
 	envvars := make([]string, 0, len(task.EnvVars())+4)
