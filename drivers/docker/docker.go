@@ -293,7 +293,9 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	var cmd []string
 	if task.Command() != "" {
 		// NOTE: this is hyper-sensitive and may not be correct like this even, but it passes old tests
+		// task.Command() in swapi is always "sh /mnt/task/.runtask" so fields is safe
 		cmd = strings.Fields(task.Command())
+		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "cmd": cmd, "len": len(cmd)}).Debug("docker command")
 	}
 
 	envvars := make([]string, 0, len(task.EnvVars())+4)
