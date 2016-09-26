@@ -126,6 +126,9 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	// TODO: record task timeout values so we can get a good idea of what people generally set it to.
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
 	defer cancel() // do this so that after Run exits, nanny and collect stop
+	var complete bool
+	defer func() { complete = true }() // run before cancel is called
+	ctx = context.WithValue(ctx, completeKey, &complete)
 
 	sentence := make(chan string, 1)
 	go drv.nanny(ctx, container, task, sentence)
@@ -133,7 +136,6 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 
 	mwOut, mwErr := task.Logger()
 
-	// attach could sever before the container has exited, so loopy loop
 	timer := drv.NewTimer("docker", "attach_container", 1)
 	waiter, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
 		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
@@ -169,10 +171,15 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	}, nil
 }
 
+const completeKey = "complete"
+
 // watch for cancel or timeout and kill process.
 func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask, sentence chan<- string) {
 	select {
 	case <-ctx.Done():
+		if *(ctx.Value(completeKey).(*bool)) {
+			return
+		}
 		switch ctx.Err() {
 		case context.DeadlineExceeded:
 			sentence <- drivers.StatusTimeout
