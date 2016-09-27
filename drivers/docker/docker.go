@@ -46,22 +46,6 @@ type AllowImager interface {
 	// - If the image could not be accessed, or some other reason, return some
 	//   other error.
 	AllowImagePull(repo string, authConfig docker.AuthConfiguration) error
-
-	// AllowImage is always called before running a task.
-	// This may be used to implement restrictions on execution of certain images.
-	// Checks implemented here should be a superset of checks in AllowImagePull
-	// to ensure reliable behavior.
-	// To clarify, say TaskA and TaskB share the same image `foo/bar`. TaskA
-	// enforces a limit of 50MB, TaskB enforces 10MB, `foo/bar` is 20MB. If TaskA
-	// runs first, AllowImagePull for TaskA returns nil,  image is now in the
-	// cache and TaskA is allowed to run. If TaskB is queued now, we need to
-	// perform a check with TaskB's limits, even though AllowImagePull will not
-	// be called for TaskB.
-	//
-	// Docker seems to have a bug where the output of docker inspect does not
-	// always fill in the RepoTags argument. So we pass the original
-	// repository name separately.
-	AllowImage(repo string, info *docker.Image) error
 }
 
 type runResult struct {
@@ -518,12 +502,6 @@ func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.Con
 		return err
 	}
 
-	if allower, ok := task.(AllowImager); ok {
-		if err := allower.AllowImage(repoImage, imageInfo); err != nil {
-			return err
-		}
-	}
-
 	// Image is available locally. If the credentials presented by the tasks are
 	// known to be good for this image, allow it, otherwise check with registry.
 	configs := usableConfigs(task)
@@ -531,18 +509,6 @@ func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.Con
 		return nil
 	}
 
-	return drv.checkAgainstRegistry(ctx, task, configs)
-}
-
-func (drv *DockerDriver) EnsureImageExists(ctx context.Context, task drivers.ContainerTask) error {
-	repo, tag := normalizedImage(task.Image())
-	repoImage := fmt.Sprintf("%s:%s", repo, tag)
-
-	// Check with registry.
-	configs := usableConfigs(task)
-	if drv.allowedToUseImage(ctx, repoImage, configs) {
-		return nil
-	}
 	return drv.checkAgainstRegistry(ctx, task, configs)
 }
 
