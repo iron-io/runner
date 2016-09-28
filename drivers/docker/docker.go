@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -492,10 +493,10 @@ func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.Con
 	repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 
-	imageInfo, err := drv.docker.InspectImage(repoImage)
+	_ /* TODO remove this param */, err := drv.docker.InspectImage(repoImage)
 	if err == docker.ErrNoSuchImage {
 		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
-		imageInfo, err = drv.pullImage(ctx, task)
+		_, err = drv.pullImage(ctx, task)
 	}
 
 	if err != nil {
@@ -522,8 +523,6 @@ func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.
 	drv.Inc("docker", "registry_auth_check", 1, 1.0)
 	log.Info("Hitting registry to check image access permission.")
 
-	var regClient *registry.Registry
-	var err error
 	repo, tag := normalizedImage(task.Image())
 
 	// On authorization failure for the specific image, we try the next config,
@@ -533,19 +532,32 @@ func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.
 	// aide in debugging when users complain, instead of the error message being
 	// lost in subsequent loops.
 	for i, config := range configs {
-		regClient = registryForConfig(config)
+		reg := registryForConfig(config)
 		timer := drv.NewTimer("docker", "registry_manifest_latency", 1)
-		_, err = regClient.Manifest(repo, tag)
+		mani, err := reg.Manifest(repo, tag)
 		timer.Measure()
 		if err != nil {
 			if isAuthError(err) {
-				logrus.WithFields(logrus.Fields{"config_index": i}).Info("Credentials not authorized, trying next.")
+				log.WithFields(logrus.Fields{"config_index": i, "server": config.ServerAddress, "image": task.Image()}).Info("Credentials not authorized, trying next.")
 				continue
 			}
 
-			log.WithFields(logrus.Fields{"config_index": i}).WithError(err).Error("Error retrieving manifest")
-			break
+			log.WithFields(logrus.Fields{"config_index": i, "server": config.ServerAddress, "image": task.Image()}).WithError(err).Error("Error retrieving manifest")
+			break // TODO this seems... bad
 		}
+
+		var sum int64
+		for _, r := range mani.References() {
+			ok, size, err := reg.HasLayer(repo, r.Digest)
+			if !ok {
+				return err
+			}
+			sum += size
+		}
+
+		jason, _ := json.Marshal(mani)
+
+		log.WithFields(logrus.Fields{"mani": string(jason), "tag": mani.Tag, "image": task.Image(), "server": config.ServerAddress, "size": sum}).Info("mani pedi image size")
 
 		drv.acceptedCredentials(task.Image(), config)
 		return nil
