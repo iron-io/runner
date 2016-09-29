@@ -1,19 +1,14 @@
 package docker
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
-	"github.com/heroku/docker-registry-client/registry"
 	"github.com/iron-io/worker/common"
 	"github.com/iron-io/worker/common/stats"
 	"github.com/iron-io/worker/runner/agent"
@@ -21,32 +16,19 @@ import (
 	"golang.org/x/net/context"
 )
 
-// We have different clients who have different ways of providing credentials
-// to access private images. Some of these clients try to do multiple pulls
-// with separate credentials and hope that one of them works.
+// A drivers.ContainerTask should implement the Auther interface if it would
+// like to use not-necessarily-public docker images for any or all task
+// invocations.
 type Auther interface {
-	// Return a list of AuthConfigurations to try.
-	// They are tried in sequence and the first one to work is picked.
-	// If you want to try without credentials, return a one element config with a default AuthConfiguration.
-	// If a zero-element array is returned, no Pull is performed!
-	// Named with Docker because tasks may want to implement multiple auth interfaces.
-	DockerAuth() []docker.AuthConfiguration
-}
-
-// Clients may need to impose some restrictions on what images a task is
-// allowed to execute. If the image is not locally available, there is
-// a significant I/O cost to getting more information about the image, which is
-// why we have a 2 step process.
-// ContainerTask implementations can opt into this by implementing the
-// AllowImager interface.
-type AllowImager interface {
-	// AllowImagePull controls whether pulling this particular image is allowed.
-	// - If the image pull is to be allowed return nil.
-	// - If the image can be accessed, but the pull is not allowed, return
-	//   a UserVisible error
-	// - If the image could not be accessed, or some other reason, return some
-	//   other error.
-	AllowImagePull(repo string, authConfig docker.AuthConfiguration) error
+	// DockerAuth should return docker auth credentials that will authenticate
+	// against a docker registry for a given drivers.ContainerTask.Image(). An
+	// error may be returned which will cause the task not to be run, this can be
+	// useful for an implementer to do things like testing auth configurations
+	// before returning them; e.g. if the implementer would like to impose
+	// certain restrictions on images or if credentials must be acquired right
+	// before runtime and there's an error doing so. If these credentials don't
+	// work, the docker pull will fail and the task will be set to error status.
+	DockerAuth() (docker.AuthConfiguration, error)
 }
 
 type runResult struct {
@@ -69,16 +51,10 @@ type DockerDriver struct {
 	docker   dockerClient // retries on *docker.Client, restricts ad hoc *docker.Client usage / retries
 	hostname string
 
-	// Map from image repository (everything except the tag) to an array of
-	// credentials known to be OK to access the image.  This is never revoked, so
-	// even if the image permission on the Registry is revoked, users can
-	// continue to queue tasks.  This should not be a problem in practice because
-	// customers should also revoke the user on the Tasker.
-	authCacheLock sync.RWMutex
-	authCache     map[string][]docker.AuthConfiguration
 	*common.Environment
 }
 
+// implements drivers.Driver
 func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -89,9 +65,163 @@ func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 		conf:        conf,
 		docker:      newClient(env),
 		hostname:    hostname,
-		authCache:   make(map[string][]docker.AuthConfiguration),
 		Environment: env,
 	}
+}
+
+func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
+	var cmd []string
+	if task.Command() != "" {
+		// NOTE: this is hyper-sensitive and may not be correct like this even, but it passes old tests
+		// task.Command() in swapi is always "sh /mnt/task/.runtask" so fields is safe
+		cmd = strings.Fields(task.Command())
+		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "cmd": cmd, "len": len(cmd)}).Debug("docker command")
+	}
+
+	envvars := make([]string, 0, len(task.EnvVars())+4)
+	for name, val := range task.EnvVars() {
+		envvars = append(envvars, name+"="+val)
+	}
+
+	container := docker.CreateContainerOptions{
+		Name: containerID(task),
+		Config: &docker.Config{
+			Env:       envvars,
+			Cmd:       cmd,
+			Memory:    int64(drv.conf.Memory),
+			CPUShares: drv.conf.CPUShares,
+			Hostname:  drv.hostname,
+			Image:     task.Image(),
+			Volumes:   map[string]struct{}{},
+			Labels:    task.Labels(),
+		},
+		HostConfig: &docker.HostConfig{},
+	}
+
+	volumes := task.Volumes()
+	for _, mapping := range volumes {
+		hostDir := mapping[0]
+		containerDir := mapping[1]
+		container.Config.Volumes[containerDir] = struct{}{}
+		mapn := fmt.Sprintf("%s:%s", hostDir, containerDir)
+		container.HostConfig.Binds = append(container.HostConfig.Binds, mapn)
+		logrus.WithFields(logrus.Fields{"volumes": mapn, "task_id": task.Id()}).Debug("setting volumes")
+	}
+
+	if wd := task.WorkDir(); wd != "" {
+		logrus.WithFields(logrus.Fields{"wd": wd, "task_id": task.Id()}).Debug("setting work dir")
+		container.Config.WorkingDir = wd
+	}
+
+	err := drv.ensureImage(ctx, task)
+	if err != nil {
+		return nil, err
+	}
+
+	createTimer := drv.NewTimer("docker", "create_container", 1.0)
+	_, err = drv.docker.CreateContainer(container)
+	createTimer.Measure()
+	logrus.WithError(err).Debug("create container error")
+	if err != nil {
+		// since we retry under the hood, if the container gets created and retry fails, we can just ignore error
+		if err != docker.ErrContainerAlreadyExists {
+			logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
+				"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
+				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
+			}).WithError(err).Error("Could not create container")
+			// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
+			// via certain invalid args, tbd
+			return nil, err
+		}
+	}
+
+	// discard removal error
+	return &closer{func() error { drv.removeContainer(containerID(task)); return nil }}, nil
+}
+
+type closer struct {
+	close func() error
+}
+
+func (c *closer) Close() error { return c.close() }
+
+func (drv *DockerDriver) removeContainer(container string) error {
+	removeTimer := drv.NewTimer("docker", "remove_container", 1.0)
+	defer removeTimer.Measure()
+	err := drv.docker.RemoveContainer(docker.RemoveContainerOptions{
+		ID: container, Force: true, RemoveVolumes: true})
+
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("error removing container")
+	}
+	return nil
+}
+
+func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.ContainerTask) error {
+	repo, tag := normalizedImage(task.Image())
+	repoImage := fmt.Sprintf("%s:%s", repo, tag)
+
+	// ask for docker creds before looking for image, as the tasker may need to
+	// validate creds even if the image is downloaded.
+
+	var config docker.AuthConfiguration // default, tries docker hub w/o user/pass
+	if task, ok := task.(Auther); ok {
+		var err error
+		config, err = task.DockerAuth()
+		if err != nil {
+			return err
+		}
+	}
+
+	// see if we already have it, if not, pull it
+	_, err := drv.docker.InspectImage(repoImage)
+	if err == docker.ErrNoSuchImage {
+		err = drv.pullImage(ctx, task, config)
+	}
+
+	return err
+}
+
+func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTask, config docker.AuthConfiguration) error {
+	log := common.Logger(ctx)
+
+	repo, tag := normalizedImage(task.Image())
+	repoImage := fmt.Sprintf("%s:%s", repo, tag)
+
+	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
+	defer pullTimer.Measure()
+
+	drv.Inc("docker", "image_used."+stats.AsStatField(repoImage), 1, 1)
+
+	err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+	if err != nil {
+		drv.Inc("task", "error.pull."+stats.AsStatField(repoImage), 1, 1)
+		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": repoImage}).WithError(err).Error("Failed to pull image")
+
+		// TODO we _could_ not do this, let another machine try it, but if we did that
+		// we have to cap silent retries.
+		// TODO need to inspect for hub or network errors and pick.
+		return agent.UserError(fmt.Errorf("Failed to pull image '%s': %s", repo, err))
+
+		// TODO what about a case where credentials were good, then credentials
+		// were invalidated -- do we need to keep the credential cache docker
+		// driver side and after pull for this case alone?
+	}
+
+	return nil
+}
+
+func normalizedImage(image string) (string, string) {
+	repo, tag := docker.ParseRepositoryTag(image)
+	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
+	// Without this, token auth fails.
+	if strings.Count(repo, "/") == 0 {
+		repo = "library/" + repo
+	}
+	if tag == "" {
+		tag = "latest"
+	}
+	return repo, tag
 }
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
@@ -173,6 +303,15 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string, task drive
 			sentence <- drivers.StatusCancelled
 			drv.cancel(container)
 		}
+	}
+}
+
+func (drv *DockerDriver) cancel(container string) {
+	stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
+	err := drv.docker.StopContainer(container, 30)
+	stopTimer.Measure()
+	if err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"container": container, "errType": fmt.Sprintf("%T", err)}).Error("something managed to escape our retries web, could not kill container")
 	}
 }
 
@@ -281,324 +420,6 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 	return cID, nil
 }
 
-func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
-	var cmd []string
-	if task.Command() != "" {
-		// NOTE: this is hyper-sensitive and may not be correct like this even, but it passes old tests
-		// task.Command() in swapi is always "sh /mnt/task/.runtask" so fields is safe
-		cmd = strings.Fields(task.Command())
-		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "cmd": cmd, "len": len(cmd)}).Debug("docker command")
-	}
-
-	envvars := make([]string, 0, len(task.EnvVars())+4)
-	for name, val := range task.EnvVars() {
-		envvars = append(envvars, name+"="+val)
-	}
-
-	container := docker.CreateContainerOptions{
-		Name: containerID(task),
-		Config: &docker.Config{
-			Env:       envvars,
-			Cmd:       cmd,
-			Memory:    int64(drv.conf.Memory),
-			CPUShares: drv.conf.CPUShares,
-			Hostname:  drv.hostname,
-			Image:     task.Image(),
-			Volumes:   map[string]struct{}{},
-			Labels:    task.Labels(),
-		},
-		HostConfig: &docker.HostConfig{},
-	}
-
-	volumes := task.Volumes()
-	for _, mapping := range volumes {
-		hostDir := mapping[0]
-		containerDir := mapping[1]
-		container.Config.Volumes[containerDir] = struct{}{}
-		mapn := fmt.Sprintf("%s:%s", hostDir, containerDir)
-		container.HostConfig.Binds = append(container.HostConfig.Binds, mapn)
-		logrus.WithFields(logrus.Fields{"volumes": mapn, "task_id": task.Id()}).Debug("setting volumes")
-	}
-
-	if wd := task.WorkDir(); wd != "" {
-		logrus.WithFields(logrus.Fields{"wd": wd, "task_id": task.Id()}).Debug("setting work dir")
-		container.Config.WorkingDir = wd
-	}
-
-	err := drv.ensureUsableImage(ctx, task)
-	if err != nil {
-		return nil, err
-	}
-
-	createTimer := drv.NewTimer("docker", "create_container", 1.0)
-	_, err = drv.docker.CreateContainer(container)
-	createTimer.Measure()
-	logrus.WithError(err).Debug("create container error")
-	if err != nil {
-		// since we retry under the hood, if the container gets created and retry fails, we can just ignore error
-		if err != docker.ErrContainerAlreadyExists {
-			logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
-				"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
-				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
-			}).WithError(err).Error("Could not create container")
-			// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
-			// via certain invalid args, tbd
-			return nil, err
-		}
-	}
-
-	// discard removal error
-	return &closer{func() error { drv.removeContainer(containerID(task)); return nil }}, nil
-}
-
-type closer struct {
-	close func() error
-}
-
-func (c *closer) Close() error { return c.close() }
-
-func (drv *DockerDriver) removeContainer(container string) error {
-	removeTimer := drv.NewTimer("docker", "remove_container", 1.0)
-	defer removeTimer.Measure()
-	err := drv.docker.RemoveContainer(docker.RemoveContainerOptions{
-		ID: container, Force: true, RemoveVolumes: true})
-
-	if err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{"container": container}).Error("error removing container")
-	}
-	return nil
-}
-
-func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTask) (*docker.Image, error) {
-	configs := usableConfigs(task)
-	if len(configs) == 0 {
-		return nil, fmt.Errorf("No AuthConfigurations specified! Did not attempt pull. Bad Auther implementation?")
-	}
-
-	log := common.Logger(ctx)
-
-	repo, tag := normalizedImage(task.Image())
-	repoImage := fmt.Sprintf("%s:%s", repo, tag)
-
-	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
-	defer pullTimer.Measure()
-
-	drv.Measure("docker", "num_pull_credentials", int64(len(configs)), 1)
-	drv.Inc("docker", "image_used."+stats.AsStatField(repoImage), 1, 1)
-
-	// try all user creds until we get one that works
-	for i, config := range configs {
-		if allower, ok := task.(AllowImager); ok {
-			err := allower.AllowImagePull(repoImage, config)
-			if agent.IsUserVisibleError(err) {
-				// if we could authenticate but the image is simply too big, tell the user
-				return nil, err
-			} else if err != nil {
-				// Could be due to a login error, so we have to try them all :(
-				log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Error("Tried to verify size, continuing")
-				continue
-			}
-		}
-
-		// add ctx so that pull doesn't time out (pull can take a while)
-		t := drv.NewTimer("docker", "pull_image_once."+stats.AsStatField(repo), 1)
-		err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag, Context: ctx}, config)
-		t.Measure()
-		if err != nil {
-			drv.Inc("task", "error.pull."+stats.AsStatField(repoImage), 1, 1)
-			// Don't leak config into logs! Go lookup array in user's credentials if user complains.
-			log.WithFields(logrus.Fields{"config_index": i, "username": config.Username}).WithError(err).Info("Tried to pull image")
-			continue
-		}
-		return drv.docker.InspectImage(repoImage)
-	}
-
-	drv.Inc("task", "fail.pull."+stats.AsStatField(repoImage), 1, 1)
-
-	// It is possible that errors other than ErrConnectionRefused or "image not
-	// found" (also means auth failed) errors can occur. These should not be bubbled up.
-	return nil, agent.UserError(fmt.Errorf("Image '%s' does not exist or authentication failed.", repo))
-}
-
-func normalizedImage(image string) (string, string) {
-	repo, tag := docker.ParseRepositoryTag(image)
-	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
-	// Without this, token auth fails.
-	if strings.Count(repo, "/") == 0 {
-		repo = "library/" + repo
-	}
-	if tag == "" {
-		tag = "latest"
-	}
-	return repo, tag
-}
-
-// Empty arrays cannot use any image; use a single element default AuthConfiguration for public.
-// Returns true if any of the configs presented exist in the cached configs.
-func (drv *DockerDriver) allowedToUseImage(ctx context.Context, image string, configs []docker.AuthConfiguration) bool {
-	log := common.Logger(ctx)
-	// Tags are not part of the permission model.
-	key, _ := normalizedImage(image)
-	drv.authCacheLock.RLock()
-	defer drv.authCacheLock.RUnlock()
-	if cached, exists := drv.authCache[key]; exists {
-		// For public images, the first, empty AuthConfiguration will be first in
-		// both lists and match quickly. For others, the sets are likely to be
-		// small.
-		for configI, config := range configs {
-			for knownConfigI, knownConfig := range cached {
-				if config.Email == knownConfig.Email &&
-					config.Username == knownConfig.Username &&
-					config.Password == knownConfig.Password &&
-					config.ServerAddress == knownConfig.ServerAddress {
-					log.WithFields(logrus.Fields{"stored_set_index": knownConfigI, "task_set_index": configI}).Info("Cached credentials matched")
-					return true
-				}
-			}
-		}
-		log.Info("No credentials matched.")
-	} else {
-		log.Info("Key does not exist")
-	}
-
-	return false
-}
-
-func (drv *DockerDriver) acceptedCredentials(image string, config docker.AuthConfiguration) {
-	// Tags are not part of the permission model.
-	key, _ := normalizedImage(image)
-	drv.authCacheLock.Lock()
-	defer drv.authCacheLock.Unlock()
-	drv.authCache[key] = append(drv.authCache[key], config)
-}
-
-func usableConfigs(task drivers.ContainerTask) []docker.AuthConfiguration {
-	var auther Auther
-	if cast, ok := task.(Auther); ok {
-		auther = cast
-	}
-
-	var configs []docker.AuthConfiguration
-	if auther != nil {
-		configs = auther.DockerAuth()
-	} else {
-		// If the task does not support auth, we don't want to skip pull entirely.
-		configs = []docker.AuthConfiguration{docker.AuthConfiguration{}}
-	}
-
-	return configs
-}
-
-func (drv *DockerDriver) ensureUsableImage(ctx context.Context, task drivers.ContainerTask) error {
-	repo, tag := normalizedImage(task.Image())
-	repoImage := fmt.Sprintf("%s:%s", repo, tag)
-
-	_ /* TODO remove this param */, err := drv.docker.InspectImage(repoImage)
-	if err == docker.ErrNoSuchImage {
-		// Attempt a pull with task's credentials, If credentials work, add them to the cached set (handled by pull).
-		_, err = drv.pullImage(ctx, task)
-	}
-
-	if err != nil {
-		return err
-	}
-
-	// Image is available locally. If the credentials presented by the tasks are
-	// known to be good for this image, allow it, otherwise check with registry.
-	configs := usableConfigs(task)
-	if drv.allowedToUseImage(ctx, repoImage, configs) {
-		return nil
-	}
-
-	return drv.checkAgainstRegistry(ctx, task, configs)
-}
-
-func (drv *DockerDriver) checkAgainstRegistry(ctx context.Context, task drivers.ContainerTask, configs []docker.AuthConfiguration) error {
-	log := common.Logger(ctx)
-
-	// We need to be able to support multiple registries, so just reconnect
-	// each time (hope to not do this often actually, as this is mostly to
-	// prevent abuse).
-	// It may be worth optimising in the future to have a dedicated HTTP client for Docker Hub.
-	drv.Inc("docker", "registry_auth_check", 1, 1.0)
-	log.Info("Hitting registry to check image access permission.")
-
-	repo, tag := normalizedImage(task.Image())
-
-	// On authorization failure for the specific image, we try the next config,
-	// on any other failure, we fail immediately.
-	// This way things like being unable to connect to a registry due to some
-	// weird reason (server format different etc.) pop up immediately and will
-	// aide in debugging when users complain, instead of the error message being
-	// lost in subsequent loops.
-	for i, config := range configs {
-		reg := registryForConfig(config)
-		timer := drv.NewTimer("docker", "registry_manifest_latency", 1)
-		mani, err := reg.Manifest(repo, tag)
-		timer.Measure()
-		if err != nil {
-			if isAuthError(err) {
-				log.WithFields(logrus.Fields{"config_index": i, "server": config.ServerAddress, "image": task.Image()}).Info("Credentials not authorized, trying next.")
-				continue
-			}
-
-			log.WithFields(logrus.Fields{"config_index": i, "server": config.ServerAddress, "image": task.Image()}).WithError(err).Error("Error retrieving manifest")
-			break // TODO this seems... bad
-		}
-
-		var sum int64
-		for _, r := range mani.References() {
-			ok, size, err := reg.HasLayer(repo, r.Digest)
-			if !ok {
-				return err
-			}
-			sum += size
-		}
-
-		jason, _ := json.Marshal(mani)
-
-		log.WithFields(logrus.Fields{"mani": string(jason), "tag": mani.Tag, "image": task.Image(), "server": config.ServerAddress, "size": sum}).Info("mani pedi image size")
-
-		drv.acceptedCredentials(task.Image(), config)
-		return nil
-	}
-
-	return agent.UserError(fmt.Errorf("Image '%s' does not exist or authentication failed.", repo))
-}
-
-// Only support HTTPS accessible registries for now.
-func registryForConfig(config docker.AuthConfiguration) *registry.Registry {
-	addr := config.ServerAddress
-	if strings.Contains(addr, "docker.io") || addr == "" {
-		addr = "index.docker.io"
-	}
-
-	// Use this instead of registry.New to avoid the Ping().
-	url := strings.TrimSuffix(fmt.Sprintf("https://%s", addr), "/")
-	transport := registry.WrapTransport(http.DefaultTransport, url, config.Username, config.Password)
-	reg := &registry.Registry{
-		URL: url,
-		Client: &http.Client{
-			Transport: transport,
-		},
-		Logf: registry.Quiet,
-	}
-	return reg
-}
-
-func isAuthError(err error) bool {
-	// AARGH!
-	if urlError, ok := err.(*url.Error); ok {
-		if httpError, ok := urlError.Err.(*registry.HttpStatusError); ok {
-			if httpError.Response.StatusCode == 401 {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error) {
 	log := common.Logger(ctx)
 
@@ -639,14 +460,5 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 		}
 
 		return drivers.StatusKilled, drivers.ErrOutOfMemory
-	}
-}
-
-func (drv *DockerDriver) cancel(container string) {
-	stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
-	err := drv.docker.StopContainer(container, 30)
-	stopTimer.Measure()
-	if err != nil {
-		logrus.WithError(err).WithFields(logrus.Fields{"container": container, "errType": fmt.Sprintf("%T", err)}).Error("something managed to escape our retries web, could not kill container")
 	}
 }
