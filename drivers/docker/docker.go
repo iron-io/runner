@@ -78,7 +78,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 		logrus.WithFields(logrus.Fields{"task_id": task.Id(), "cmd": cmd, "len": len(cmd)}).Debug("docker command")
 	}
 
-	envvars := make([]string, 0, len(task.EnvVars())+4)
+	envvars := make([]string, 0, len(task.EnvVars()))
 	for name, val := range task.EnvVars() {
 		envvars = append(envvars, name+"="+val)
 	}
