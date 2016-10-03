@@ -61,6 +61,11 @@ func newClient(env *common.Environment) dockerClient {
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
+
+	if err := client.Ping(); err != nil {
+		logrus.WithError(err).Fatal("couldn't connect to docker daemon")
+	}
+
 	client.SetTimeout(120 * time.Second)
 
 	// get 2 clients, one with a small timeout, one with a large timeout
@@ -90,6 +95,11 @@ func newClient(env *common.Environment) dockerClient {
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
+
+	if err := clientLongTimeout.Ping(); err != nil {
+		logrus.WithError(err).Fatal("couldn't connect to docker daemon")
+	}
+
 	client.SetTimeout(30 * time.Minute) // TODO ? this seems high but... hub can be really slow
 
 	return &dockerWrap{client, clientLongTimeout, env}
