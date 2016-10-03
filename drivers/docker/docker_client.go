@@ -97,7 +97,7 @@ func newClient(env *common.Environment) dockerClient {
 	}
 
 	if err := clientLongTimeout.Ping(); err != nil {
-		logrus.WithError(err).Fatal("couldn't connect to docker daemon")
+		logrus.WithError(err).Fatal("couldn't connect to other docker daemon")
 	}
 
 	client.SetTimeout(30 * time.Minute) // TODO ? this seems high but... hub can be really slow
