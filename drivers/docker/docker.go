@@ -14,11 +14,11 @@ import (
 	"github.com/Sirupsen/logrus"
 	manifest "github.com/docker/distribution/manifest/schema1"
 	"github.com/fsouza/go-dockerclient"
+	"github.com/heroku/docker-registry-client/registry"
 	"github.com/iron-io/worker/common"
 	"github.com/iron-io/worker/common/stats"
 	"github.com/iron-io/worker/runner/agent"
 	"github.com/iron-io/worker/runner/drivers"
-	"github.com/rdallman/docker-registry-client/registry"
 	"golang.org/x/net/context"
 )
 
