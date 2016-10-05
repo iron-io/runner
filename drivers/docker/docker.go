@@ -1,20 +1,46 @@
 package docker
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	manifest "github.com/docker/distribution/manifest/schema1"
 	"github.com/fsouza/go-dockerclient"
+	"github.com/heroku/docker-registry-client/registry"
 	"github.com/iron-io/worker/common"
 	"github.com/iron-io/worker/common/stats"
 	"github.com/iron-io/worker/runner/agent"
 	"github.com/iron-io/worker/runner/drivers"
 	"golang.org/x/net/context"
 )
+
+const hubURL = "https://registry.hub.docker.com"
+
+var registryClient = &http.Client{
+	Transport: &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 2 * time.Minute,
+		}).Dial,
+		TLSClientConfig: &tls.Config{
+			ClientSessionCache: tls.NewLRUClientSessionCache(8192),
+		},
+		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConnsPerHost:   32, // TODO tune; we will likely be making lots of requests to same place
+		Proxy:                 http.ProxyFromEnvironment,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          512,
+		ExpectContinueTimeout: 1 * time.Second,
+	},
+}
 
 // A drivers.ContainerTask should implement the Auther interface if it would
 // like to use not-necessarily-public docker images for any or all task
@@ -67,6 +93,116 @@ func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 		hostname:    hostname,
 		Environment: env,
 	}
+}
+
+// CheckRegistry will return a sizer, which can be used to check the size of an
+// image if the returned error is nil. If the error returned is nil, then
+// authentication against the given credentials was successful, if the
+// configuration does not specify a config.ServerAddress,
+// https://hub.docker.com will be tried.  CheckRegistry is a package level
+// method since rkt can also use docker images, we may be interested in using
+// rkt w/o a docker driver configured; also, we don't have to tote around a
+// driver in any tasker that may be interested in registry information (2/2
+// cases thus far).
+func CheckRegistry(image string, config docker.AuthConfiguration) (Sizer, error) {
+	repo, tag := normalizedImage(image)
+
+	reg, err := registryForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	mani, err := reg.Manifest(repo, tag)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{"username": config.Username, "server": config.ServerAddress, "image": image}).WithError(err).Error("Credentials not authorized, trying next.")
+		//if !isAuthError(err) {
+		//  // TODO we might retry this, since if this was the registry that was supposed to
+		//  // auth the task will erroneously be set to 'error'
+		//}
+
+		return nil, err
+	}
+
+	return &sizer{mani, reg, repo}, nil
+}
+
+// Sizer returns size information. This interface is liable to contain more
+// than a size at some point, change as needed.
+type Sizer interface {
+	Size() (int64, error)
+}
+
+type sizer struct {
+	mani *manifest.SignedManifest
+	reg  *registry.Registry
+	repo string
+}
+
+func (s *sizer) Size() (int64, error) {
+	var sum int64
+	for _, r := range s.mani.References() {
+		desc, err := s.reg.LayerMetadata(s.repo, r.Digest)
+		if err != nil {
+			return 0, err
+		}
+		sum += desc.Size
+	}
+	return sum, nil
+}
+
+func registryURL(addr string) (string, error) {
+	if addr == "" || strings.Contains(addr, "hub.docker.com") || strings.Contains(addr, "index.docker.io") {
+		return hubURL, nil
+	}
+
+	url, err := url.Parse(addr)
+	if err != nil {
+		// TODO we could error the task out from this with a user error but since
+		// we have a list of auths to check, just return the error so as to be
+		// skipped... horrible api as it is
+		logrus.WithFields(logrus.Fields{"auth_addr": addr}).WithError(err).Error("error parsing server address url, skipping")
+		return "", err
+	}
+
+	if url.Scheme == "" {
+		url.Scheme = "https"
+	}
+	url.Path = strings.TrimSuffix(url.Path, "/")
+	url.Path = strings.TrimPrefix(url.Path, "/v2")
+	url.Path = strings.TrimPrefix(url.Path, "/v1") // just try this, if it fails it fails, not supporting v1
+	return url.String(), nil
+}
+
+func isAuthError(err error) bool {
+	// AARGH!
+	if urlError, ok := err.(*url.Error); ok {
+		if httpError, ok := urlError.Err.(*registry.HttpStatusError); ok {
+			if httpError.Response.StatusCode == 401 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func registryForConfig(config docker.AuthConfiguration) (*registry.Registry, error) {
+	var err error
+	config.ServerAddress, err = registryURL(config.ServerAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	// Use this instead of registry.New to avoid the Ping().
+	transport := registry.WrapTransport(registryClient.Transport, config.ServerAddress, config.Username, config.Password)
+	reg := &registry.Registry{
+		URL: config.ServerAddress,
+		Client: &http.Client{
+			Transport: transport,
+		},
+		Logf: registry.Quiet,
+	}
+	return reg, nil
 }
 
 func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
@@ -193,7 +329,13 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 
 	drv.Inc("docker", "image_used."+stats.AsStatField(repoImage), 1, 1)
 
-	err := drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+	var err error
+	config.ServerAddress, err = registryURL(config.ServerAddress)
+	if err != nil {
+		return err
+	}
+
+	err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
 	if err != nil {
 		drv.Inc("task", "error.pull."+stats.AsStatField(repoImage), 1, 1)
 		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": repoImage}).WithError(err).Error("Failed to pull image")
