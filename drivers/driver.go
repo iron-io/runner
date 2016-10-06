@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"golang.org/x/net/context"
+	"context"
 )
 
 type Driver interface {

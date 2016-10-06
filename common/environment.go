@@ -1,7 +1,7 @@
 package common
 
 import (
-	"github.com/iron-io/worker/common/stats"
+	"github.com/iron-io/runner/common/stats"
 )
 
 // An Environment is a long lived object that carries around 'configuration'

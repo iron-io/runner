@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"context"
 	"github.com/Sirupsen/logrus"
 	manifest "github.com/docker/distribution/manifest/schema1"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/heroku/docker-registry-client/registry"
-	"github.com/iron-io/worker/common"
-	"github.com/iron-io/worker/common/stats"
-	"github.com/iron-io/worker/runner/drivers"
-	"golang.org/x/net/context"
+	"github.com/iron-io/runner/common"
+	"github.com/iron-io/runner/common/stats"
+	"github.com/iron-io/runner/drivers"
 )
 
 const hubURL = "https://registry.hub.docker.com"

@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"strings"
 
-	"github.com/iron-io/worker/runner/drivers"
-	"golang.org/x/net/context"
+	"context"
+	"github.com/iron-io/runner/drivers"
 )
 
 func New() drivers.Driver {

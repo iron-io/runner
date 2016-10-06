@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"context"
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
-	"github.com/iron-io/worker/common"
-	"golang.org/x/net/context"
+	"github.com/iron-io/runner/common"
 )
 
 // wrap docker client calls so we can retry 500s, kind of sucks but fsouza doesn't

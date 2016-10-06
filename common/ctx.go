@@ -1,8 +1,8 @@
 package common
 
 import (
+	"context"
 	"github.com/Sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 // WithLogger stores the logger.
