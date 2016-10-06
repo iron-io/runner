@@ -11,7 +11,6 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/iron-io/worker/common"
-	"github.com/iron-io/worker/runner/agent"
 	"golang.org/x/net/context"
 )
 
@@ -120,7 +119,7 @@ func (d *dockerWrap) retry(f func() error) error {
 		timer := d.NewTimer("docker", "latency", 1)
 		err = filter(f())
 		timer.Measure()
-		if agent.IsTemporary(err) || isDocker500(err) {
+		if common.IsTemporary(err) || isDocker500(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
 			d.Inc("task", "error.docker", 1, 1)
