@@ -17,7 +17,6 @@ import (
 	"github.com/heroku/docker-registry-client/registry"
 	"github.com/iron-io/worker/common"
 	"github.com/iron-io/worker/common/stats"
-	"github.com/iron-io/worker/runner/agent"
 	"github.com/iron-io/worker/runner/drivers"
 	"golang.org/x/net/context"
 )
@@ -70,7 +69,7 @@ func (r *runResult) Error() string {
 }
 
 func (r *runResult) Status() string    { return r.StatusValue }
-func (r *runResult) UserVisible() bool { return agent.IsUserVisibleError(r.error) }
+func (r *runResult) UserVisible() bool { return common.IsUserVisibleError(r.error) }
 
 type DockerDriver struct {
 	conf     drivers.Config
@@ -343,7 +342,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		// TODO we _could_ not do this, let another machine try it, but if we did that
 		// we have to cap silent retries.
 		// TODO need to inspect for hub or network errors and pick.
-		return agent.UserError(fmt.Errorf("Failed to pull image '%s': %s", repo, err))
+		return common.UserError(fmt.Errorf("Failed to pull image '%s': %s", repo, err))
 
 		// TODO what about a case where credentials were good, then credentials
 		// were invalidated -- do we need to keep the credential cache docker

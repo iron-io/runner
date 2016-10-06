@@ -112,7 +112,7 @@ type dockerWrap struct {
 }
 
 func (d *dockerWrap) retry(f func() error) error {
-	var b agent.Backoff
+	var b common.Backoff
 	then := time.Now()
 	limit := 10 * time.Minute
 	var err error
