@@ -53,6 +53,8 @@ type ContainerTask interface {
 	Command() string
 	// EnvVars returns environment variable key-value pairs.
 	EnvVars() map[string]string
+	// Input feeds the container with data
+	Input() io.Reader
 	// Labels returns container label key-value pairs.
 	Labels() map[string]string
 	Id() string

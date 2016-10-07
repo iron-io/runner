@@ -1,0 +1,19 @@
+package: github.com/iron-io/runner
+import:
+- package: github.com/Sirupsen/logrus
+  version: ^0.10.0
+  subpackages:
+  - hooks/syslog
+- package: github.com/amir/raidman
+- package: github.com/cactus/go-statsd-client
+  version: ^3.1.0
+  subpackages:
+  - statsd
+- package: github.com/docker/distribution
+  version: ^2.5.1
+  subpackages:
+  - manifest/schema1
+- package: github.com/fsouza/go-dockerclient
+- package: github.com/heroku/docker-registry-client
+  subpackages:
+  - registry

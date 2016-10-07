@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -11,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"context"
 	"github.com/Sirupsen/logrus"
 	manifest "github.com/docker/distribution/manifest/schema1"
 	"github.com/fsouza/go-dockerclient"
@@ -221,14 +221,17 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	container := docker.CreateContainerOptions{
 		Name: containerID(task),
 		Config: &docker.Config{
-			Env:       envvars,
-			Cmd:       cmd,
-			Memory:    int64(drv.conf.Memory),
-			CPUShares: drv.conf.CPUShares,
-			Hostname:  drv.hostname,
-			Image:     task.Image(),
-			Volumes:   map[string]struct{}{},
-			Labels:    task.Labels(),
+			Env:         envvars,
+			Cmd:         cmd,
+			Memory:      int64(drv.conf.Memory),
+			CPUShares:   drv.conf.CPUShares,
+			Hostname:    drv.hostname,
+			Image:       task.Image(),
+			Volumes:     map[string]struct{}{},
+			Labels:      task.Labels(),
+			OpenStdin:   true,
+			AttachStdin: true,
+			StdinOnce:   true,
 		},
 		HostConfig: &docker.HostConfig{},
 	}
@@ -395,7 +398,8 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	timer := drv.NewTimer("docker", "attach_container", 1)
 	waiter, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
 		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
-		Stream: true, Logs: true, Stdout: true, Stderr: true})
+		Stream: true, Logs: true, Stdout: true, Stderr: true,
+		Stdin: true, InputStream: task.Input()})
 	timer.Measure()
 	if err != nil {
 		return nil, err

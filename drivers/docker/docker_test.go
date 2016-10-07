@@ -1,0 +1,89 @@
+package docker
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"strings"
+	"testing"
+
+	"github.com/iron-io/runner/common"
+	"github.com/iron-io/runner/drivers"
+)
+
+type taskDockerTest struct {
+	id     string
+	input  io.Reader
+	output io.Writer
+}
+
+func (f *taskDockerTest) Command() string { return "" }
+func (f *taskDockerTest) EnvVars() map[string]string {
+	return map[string]string{}
+}
+func (f *taskDockerTest) Labels() map[string]string          { return nil }
+func (f *taskDockerTest) Id() string                         { return f.id }
+func (f *taskDockerTest) Group() string                      { return "" }
+func (f *taskDockerTest) Image() string                      { return "iron/hello" }
+func (f *taskDockerTest) Timeout() uint                      { return uint(30) }
+func (f *taskDockerTest) Logger() (stdout, stderr io.Writer) { return f.output, nil }
+func (f *taskDockerTest) WriteStat(drivers.Stat)             { /* TODO */ }
+func (f *taskDockerTest) Volumes() [][2]string               { return [][2]string{} }
+func (f *taskDockerTest) WorkDir() string                    { return "" }
+func (f *taskDockerTest) Close()                             {}
+func (f *taskDockerTest) Input() io.Reader                   { return f.input }
+
+func TestRunnerDocker(t *testing.T) {
+	env := common.NewEnvironment(func(e *common.Environment) {})
+	dkr := NewDocker(env, drivers.Config{})
+	ctx := context.Background()
+
+	task := &taskDockerTest{"test-docker", nil, nil}
+
+	closer, err := dkr.Prepare(ctx, task)
+	if err != nil {
+		t.Fatal("Couldn't prepare task test")
+	}
+	defer closer.Close()
+
+	result, err := dkr.Run(ctx, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Status() != "success" {
+		t.Fatal("Test should successfully run the image")
+	}
+}
+
+func TestRunnerDockerStdin(t *testing.T) {
+	env := common.NewEnvironment(func(e *common.Environment) {})
+	dkr := NewDocker(env, drivers.Config{})
+	ctx := context.Background()
+
+	input := `{"name": "test"}`
+	var output bytes.Buffer
+
+	task := &taskDockerTest{"test-docker-stdin", bytes.NewBufferString(input), &output}
+
+	closer, err := dkr.Prepare(ctx, task)
+	if err != nil {
+		t.Fatal("Couldn't prepare task test")
+	}
+	defer closer.Close()
+
+	result, err := dkr.Run(ctx, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Status() != "success" {
+		t.Error("Test should successfully run the image")
+	}
+
+	expect := "Hello test!"
+	got := output.String()
+	if !strings.Contains(got, expect) {
+		t.Errorf("Test expected output to contain '%s', got '%s'", expect, got)
+	}
+}
