@@ -87,3 +87,22 @@ func TestRunnerDockerStdin(t *testing.T) {
 		t.Errorf("Test expected output to contain '%s', got '%s'", expect, got)
 	}
 }
+
+func TestDockerImageNormalization(t *testing.T) {
+	cases := map[string][]string{
+		"iron/hello":                                        {"", "iron/hello", "latest"},
+		"iron/hello:v1":                                     {"", "iron/hello", "v1"},
+		"mongo":                                             {"", "library/mongo", "latest"},
+		"mongo:v1":                                          {"", "library/mongo", "v1"},
+		"quay.com/iron/hello":                               {"quay.com", "iron/hello", "latest"},
+		"quay.com:8080/iron/hello:v2":                       {"quay.com:8080", "iron/hello", "v2"},
+		"localhost.localdomain:5000/samalba/hipache:latest": {"localhost.localdomain:5000", "samalba/hipache", "latest"},
+	}
+
+	for in, out := range cases {
+		reg, repo, tag := normalizedImage(in)
+		if reg != out[0] || repo != out[1] || tag != out[2] {
+			t.Errorf("Test input %q wasn't parsed as expected. Expected %q, got %q", in, out, []string{reg, repo, tag})
+		}
+	}
+}

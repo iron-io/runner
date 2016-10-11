@@ -104,9 +104,9 @@ func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 // driver in any tasker that may be interested in registry information (2/2
 // cases thus far).
 func CheckRegistry(image string, config docker.AuthConfiguration) (Sizer, error) {
-	repo, tag := normalizedImage(image)
+	registry, repo, tag := normalizedImage(image)
 
-	reg, err := registryForConfig(config)
+	reg, err := registryForConfig(config, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -185,23 +185,27 @@ func isAuthError(err error) bool {
 	return false
 }
 
-func registryForConfig(config docker.AuthConfiguration) (*registry.Registry, error) {
+func registryForConfig(config docker.AuthConfiguration, reg string) (*registry.Registry, error) {
+	if reg == "" {
+		reg = config.ServerAddress
+	}
+
 	var err error
-	config.ServerAddress, err = registryURL(config.ServerAddress)
+	config.ServerAddress, err = registryURL(reg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Use this instead of registry.New to avoid the Ping().
-	transport := registry.WrapTransport(registryClient.Transport, config.ServerAddress, config.Username, config.Password)
-	reg := &registry.Registry{
+	transport := registry.WrapTransport(registryClient.Transport, reg, config.Username, config.Password)
+	r := &registry.Registry{
 		URL: config.ServerAddress,
 		Client: &http.Client{
 			Transport: transport,
 		},
 		Logf: registry.Quiet,
 	}
-	return reg, nil
+	return r, nil
 }
 
 func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
@@ -259,7 +263,6 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	_, err = drv.docker.CreateContainer(container)
 	createTimer.Measure()
-	logrus.WithError(err).Debug("create container error")
 	if err != nil {
 		// since we retry under the hood, if the container gets created and retry fails, we can just ignore error
 		if err != docker.ErrContainerAlreadyExists {
@@ -296,7 +299,7 @@ func (drv *DockerDriver) removeContainer(container string) error {
 }
 
 func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.ContainerTask) error {
-	repo, tag := normalizedImage(task.Image())
+	reg, repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 
 	// ask for docker creds before looking for image, as the tasker may need to
@@ -308,6 +311,10 @@ func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.Container
 		config, err = task.DockerAuth()
 		if err != nil {
 			return err
+		}
+
+		if reg != "" {
+			config.ServerAddress = reg
 		}
 	}
 
@@ -323,13 +330,17 @@ func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.Container
 func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTask, config docker.AuthConfiguration) error {
 	log := common.Logger(ctx)
 
-	repo, tag := normalizedImage(task.Image())
+	reg, repo, tag := normalizedImage(task.Image())
 	repoImage := fmt.Sprintf("%s:%s", repo, tag)
 
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 	defer pullTimer.Measure()
 
 	drv.Inc("docker", "image_used."+stats.AsStatField(repoImage), 1, 1)
+
+	if reg != "" {
+		config.ServerAddress = reg
+	}
 
 	var err error
 	config.ServerAddress, err = registryURL(config.ServerAddress)
@@ -355,17 +366,26 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	return nil
 }
 
-func normalizedImage(image string) (string, string) {
-	repo, tag := docker.ParseRepositoryTag(image)
+func normalizedImage(image string) (registry string, repo string, tag string) {
+	repo, tag = docker.ParseRepositoryTag(image)
 	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
 	// Without this, token auth fails.
-	if strings.Count(repo, "/") == 0 {
+	// Registries must exist at root (https://github.com/docker/docker/issues/7067#issuecomment-54302847)
+	// This cannot support the library shortcut for private repositories.
+	parts := strings.Split(repo, "/")
+	switch len(parts) {
+	case 1:
 		repo = "library/" + repo
+	case 3:
+		registry = parts[0]
+		repo = parts[1] + "/" + parts[2]
 	}
+
 	if tag == "" {
 		tag = "latest"
 	}
-	return repo, tag
+
+	return registry, repo, tag
 }
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
