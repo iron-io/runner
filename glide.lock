@@ -1,5 +1,5 @@
 hash: 48807985d9072f7201263784bc89bcd23337fe2c4de9d7f518085d2093366cf6
-updated: 2016-10-07T01:57:30.954301022+02:00
+updated: 2016-10-11T16:07:05.878644156-07:00
 imports:
 - name: github.com/amir/raidman
   version: c74861fe6a7bb8ede0a010ce4485bdbb4fc4c985
@@ -18,51 +18,40 @@ imports:
   - manifest/schema1
   - reference
   - uuid
-- name: github.com/docker/docker
-  version: 694ba71e365c6b9aa7472a9ef29bbde3cba6dce2
-  subpackages:
-  - api/types/filters
-  - api/types/mount
-  - api/types/swarm
-  - api/types/versions
-  - opts
-  - pkg/archive
-  - pkg/fileutils
-  - pkg/homedir
-  - pkg/idtools
-  - pkg/ioutils
-  - pkg/longpath
-  - pkg/pools
-  - pkg/promise
-  - pkg/stdcopy
-  - pkg/system
-- name: github.com/docker/go-units
-  version: f2145db703495b2e525c59662db69a7344b00bb8
 - name: github.com/docker/libtrust
   version: fa567046d9b14f6aa788882a950d69651d230b21
 - name: github.com/fsouza/go-dockerclient
-  version: 519179ce6c6db417b0f092abf47d7d73e4e0d900
+  version: 98829062f36e94bc8c31a1c9a8b087b90f9d2d9c
+  subpackages:
+  - external/github.com/Sirupsen/logrus
+  - external/github.com/docker/docker/opts
+  - external/github.com/docker/docker/pkg/archive
+  - external/github.com/docker/docker/pkg/fileutils
+  - external/github.com/docker/docker/pkg/homedir
+  - external/github.com/docker/docker/pkg/idtools
+  - external/github.com/docker/docker/pkg/ioutils
+  - external/github.com/docker/docker/pkg/longpath
+  - external/github.com/docker/docker/pkg/pools
+  - external/github.com/docker/docker/pkg/promise
+  - external/github.com/docker/docker/pkg/stdcopy
+  - external/github.com/docker/docker/pkg/system
+  - external/github.com/docker/go-units
+  - external/github.com/hashicorp/go-cleanhttp
+  - external/github.com/opencontainers/runc/libcontainer/user
+  - external/golang.org/x/net/context
+  - external/golang.org/x/sys/unix
 - name: github.com/golang/protobuf
-  version: 8d92cf5fc15a4382f8964b08e1f42a75c0591aa3
+  version: 2402d76f3d41f928c7902a765dfc872356dd3aad
   subpackages:
   - proto
 - name: github.com/gorilla/context
   version: 14f550f51af52180c2eefed15e5fd18d63c0a64a
 - name: github.com/gorilla/mux
   version: e444e69cbd2e2e3e0749a2f3c717cec491552bbf
-- name: github.com/hashicorp/go-cleanhttp
-  version: ad28ea4487f05916463e2423a55166280e8254b5
 - name: github.com/heroku/docker-registry-client
-  version: e6568fe3de1cb83f1fe3107e7637c8be829ef149
+  version: ddbd05bac47f55e533a7ed124211ef7e076b0bf3
   subpackages:
   - registry
-- name: github.com/Microsoft/go-winio
-  version: ce2922f643c8fd76b46cadc7f404a06282678b34
-- name: github.com/opencontainers/runc
-  version: 02f8fa7863dd3f82909a73e2061897828460d52f
-  subpackages:
-  - libcontainer/system
-  - libcontainer/user
 - name: github.com/Sirupsen/logrus
   version: 4b6ea7319e214d98c938f12692336f7ca9348d6b
   subpackages:
@@ -71,11 +60,9 @@ imports:
   version: 4876518f9e71663000c348837735820161a42df7
   subpackages:
   - context
-  - context/ctxhttp
   - proxy
 - name: golang.org/x/sys
-  version: 8f0908ab3b2457e2e15403d3697c9ef5cb4b57a9
+  version: 9eef40adf05b951699605195b829612bd7b69952
   subpackages:
   - unix
-  - windows
 testImports: []
