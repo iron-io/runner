@@ -5,6 +5,7 @@ package drivers
 import (
 	"errors"
 	"io"
+	"strings"
 	"time"
 
 	"context"
@@ -198,4 +199,40 @@ func Decimate(maxSamples int, stats []Stat) []Stat {
 		current = current.Add(window)
 	}
 	return stats[:nextEntry] // Return slice of []Stats that was modified with averages
+}
+
+// https://github.com/fsouza/go-dockerclient/blob/master/misc.go#L166
+func parseRepositoryTag(repoTag string) (repository string, tag string) {
+	parts := strings.SplitN(repoTag, "@", 2)
+	repoTag = parts[0]
+	n := strings.LastIndex(repoTag, ":")
+	if n < 0 {
+		return repoTag, ""
+	}
+	if tag := repoTag[n+1:]; !strings.Contains(tag, "/") {
+		return repoTag[:n], tag
+	}
+	return repoTag, ""
+}
+
+func ParseImage(image string) (registry, repo, tag string) {
+	repo, tag = parseRepositoryTag(image)
+	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
+	// Without this, token auth fails.
+	// Registries must exist at root (https://github.com/docker/docker/issues/7067#issuecomment-54302847)
+	// This cannot support the `library/` shortcut for private registries.
+	parts := strings.Split(repo, "/")
+	switch len(parts) {
+	case 1:
+		repo = "library/" + repo
+	case 3:
+		registry = parts[0]
+		repo = parts[1] + "/" + parts[2]
+	}
+
+	if tag == "" {
+		tag = "latest"
+	}
+
+	return registry, repo, tag
 }
