@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -104,9 +105,9 @@ func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 // driver in any tasker that may be interested in registry information (2/2
 // cases thus far).
 func CheckRegistry(image string, config docker.AuthConfiguration) (Sizer, error) {
-	repo, tag := normalizedImage(image)
+	registry, repo, tag := drivers.ParseImage(image)
 
-	reg, err := registryForConfig(config)
+	reg, err := registryForConfig(config, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -185,23 +186,27 @@ func isAuthError(err error) bool {
 	return false
 }
 
-func registryForConfig(config docker.AuthConfiguration) (*registry.Registry, error) {
+func registryForConfig(config docker.AuthConfiguration, reg string) (*registry.Registry, error) {
+	if reg == "" {
+		reg = config.ServerAddress
+	}
+
 	var err error
-	config.ServerAddress, err = registryURL(config.ServerAddress)
+	config.ServerAddress, err = registryURL(reg)
 	if err != nil {
 		return nil, err
 	}
 
 	// Use this instead of registry.New to avoid the Ping().
-	transport := registry.WrapTransport(registryClient.Transport, config.ServerAddress, config.Username, config.Password)
-	reg := &registry.Registry{
+	transport := registry.WrapTransport(registryClient.Transport, reg, config.Username, config.Password)
+	r := &registry.Registry{
 		URL: config.ServerAddress,
 		Client: &http.Client{
 			Transport: transport,
 		},
 		Logf: registry.Quiet,
 	}
-	return reg, nil
+	return r, nil
 }
 
 func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
@@ -259,7 +264,6 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	createTimer := drv.NewTimer("docker", "create_container", 1.0)
 	_, err = drv.docker.CreateContainer(container)
 	createTimer.Measure()
-	logrus.WithError(err).Debug("create container error")
 	if err != nil {
 		// since we retry under the hood, if the container gets created and retry fails, we can just ignore error
 		if err != docker.ErrContainerAlreadyExists {
@@ -296,8 +300,7 @@ func (drv *DockerDriver) removeContainer(container string) error {
 }
 
 func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.ContainerTask) error {
-	repo, tag := normalizedImage(task.Image())
-	repoImage := fmt.Sprintf("%s:%s", repo, tag)
+	reg, _, _ := drivers.ParseImage(task.Image())
 
 	// ask for docker creds before looking for image, as the tasker may need to
 	// validate creds even if the image is downloaded.
@@ -311,8 +314,12 @@ func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.Container
 		}
 	}
 
+	if reg != "" {
+		config.ServerAddress = reg
+	}
+
 	// see if we already have it, if not, pull it
-	_, err := drv.docker.InspectImage(repoImage)
+	_, err := drv.docker.InspectImage(task.Image())
 	if err == docker.ErrNoSuchImage {
 		err = drv.pullImage(ctx, task, config)
 	}
@@ -323,13 +330,17 @@ func (drv *DockerDriver) ensureImage(ctx context.Context, task drivers.Container
 func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTask, config docker.AuthConfiguration) error {
 	log := common.Logger(ctx)
 
-	repo, tag := normalizedImage(task.Image())
-	repoImage := fmt.Sprintf("%s:%s", repo, tag)
+	reg, repo, tag := drivers.ParseImage(task.Image())
+	globalRepo := path.Join(reg, repo)
 
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 	defer pullTimer.Measure()
 
-	drv.Inc("docker", "image_used."+stats.AsStatField(repoImage), 1, 1)
+	drv.Inc("docker", "image_used."+stats.AsStatField(task.Image()), 1, 1)
+
+	if reg != "" {
+		config.ServerAddress = reg
+	}
 
 	var err error
 	config.ServerAddress, err = registryURL(config.ServerAddress)
@@ -337,15 +348,15 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		return err
 	}
 
-	err = drv.docker.PullImage(docker.PullImageOptions{Repository: repo, Tag: tag}, config)
+	err = drv.docker.PullImage(docker.PullImageOptions{Repository: globalRepo, Tag: tag}, config)
 	if err != nil {
-		drv.Inc("task", "error.pull."+stats.AsStatField(repoImage), 1, 1)
-		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": repoImage}).WithError(err).Error("Failed to pull image")
+		drv.Inc("task", "error.pull."+stats.AsStatField(task.Image()), 1, 1)
+		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).WithError(err).Error("Failed to pull image")
 
 		// TODO we _could_ not do this, let another machine try it, but if we did that
 		// we have to cap silent retries.
 		// TODO need to inspect for hub or network errors and pick.
-		return common.UserError(fmt.Errorf("Failed to pull image '%s': %s", repo, err))
+		return common.UserError(fmt.Errorf("Failed to pull image '%s': %s", task.Image(), err))
 
 		// TODO what about a case where credentials were good, then credentials
 		// were invalidated -- do we need to keep the credential cache docker
@@ -353,19 +364,6 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	}
 
 	return nil
-}
-
-func normalizedImage(image string) (string, string) {
-	repo, tag := docker.ParseRepositoryTag(image)
-	// Officially sanctioned at https://github.com/docker/docker/blob/master/registry/session.go#L319 to deal with "Official Repositories".
-	// Without this, token auth fails.
-	if strings.Count(repo, "/") == 0 {
-		repo = "library/" + repo
-	}
-	if tag == "" {
-		tag = "latest"
-	}
-	return repo, tag
 }
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
