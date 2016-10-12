@@ -336,7 +336,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 	defer pullTimer.Measure()
 
-	drv.Inc("docker", "image_used."+stats.AsStatField(task.Image()), 1, 1)
+	drv.Inc("docker", "pull_image_count."+stats.AsStatField(task.Image()), 1, 1)
 
 	if reg != "" {
 		config.ServerAddress = reg
@@ -348,13 +348,13 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 		return err
 	}
 
+	log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).Info("Pulling image")
+
 	err = drv.docker.PullImage(docker.PullImageOptions{Repository: globalRepo, Tag: tag}, config)
 	if err != nil {
 		drv.Inc("task", "error.pull."+stats.AsStatField(task.Image()), 1, 1)
 		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).WithError(err).Error("Failed to pull image")
 
-		// TODO we _could_ not do this, let another machine try it, but if we did that
-		// we have to cap silent retries.
 		// TODO need to inspect for hub or network errors and pick.
 		return common.UserError(fmt.Errorf("Failed to pull image '%s': %s", task.Image(), err))
 
