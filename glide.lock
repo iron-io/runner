@@ -1,5 +1,5 @@
-hash: 48807985d9072f7201263784bc89bcd23337fe2c4de9d7f518085d2093366cf6
-updated: 2016-10-07T01:57:30.954301022+02:00
+hash: 8e2451f4edc8590e9d63ebc81c1e5f2a956b3457373cab2b3dfb86ea8fdb3bd2
+updated: 2016-10-11T18:07:06.738056671-07:00
 imports:
 - name: github.com/amir/raidman
   version: c74861fe6a7bb8ede0a010ce4485bdbb4fc4c985
@@ -10,7 +10,7 @@ imports:
   subpackages:
   - statsd
 - name: github.com/docker/distribution
-  version: 12acdf0a6c1e56d965ac6eb395d2bce687bf22fc
+  version: 252cc27ab1272108bfd74cf939d354db77862d93
   subpackages:
   - context
   - digest
@@ -19,7 +19,7 @@ imports:
   - reference
   - uuid
 - name: github.com/docker/docker
-  version: 694ba71e365c6b9aa7472a9ef29bbde3cba6dce2
+  version: 9bd8c1d3321d1b264e84ff5fba4dc04730c264f3
   subpackages:
   - api/types/filters
   - api/types/mount
@@ -41,9 +41,9 @@ imports:
 - name: github.com/docker/libtrust
   version: fa567046d9b14f6aa788882a950d69651d230b21
 - name: github.com/fsouza/go-dockerclient
-  version: 519179ce6c6db417b0f092abf47d7d73e4e0d900
+  version: 4bae70ae976745ea1cd0db139b53f83a7bcb898d
 - name: github.com/golang/protobuf
-  version: 8d92cf5fc15a4382f8964b08e1f42a75c0591aa3
+  version: 2402d76f3d41f928c7902a765dfc872356dd3aad
   subpackages:
   - proto
 - name: github.com/gorilla/context
@@ -53,13 +53,13 @@ imports:
 - name: github.com/hashicorp/go-cleanhttp
   version: ad28ea4487f05916463e2423a55166280e8254b5
 - name: github.com/heroku/docker-registry-client
-  version: e6568fe3de1cb83f1fe3107e7637c8be829ef149
+  version: 2a2e6b9e3eed0a98d438f111ba7469744c07281d
   subpackages:
   - registry
 - name: github.com/Microsoft/go-winio
   version: ce2922f643c8fd76b46cadc7f404a06282678b34
 - name: github.com/opencontainers/runc
-  version: 02f8fa7863dd3f82909a73e2061897828460d52f
+  version: 8d505cb9dc8d665c59a7f1491bf0e2a6bd5a5319
   subpackages:
   - libcontainer/system
   - libcontainer/user
@@ -74,7 +74,7 @@ imports:
   - context/ctxhttp
   - proxy
 - name: golang.org/x/sys
-  version: 8f0908ab3b2457e2e15403d3697c9ef5cb4b57a9
+  version: 9eef40adf05b951699605195b829612bd7b69952
   subpackages:
   - unix
   - windows

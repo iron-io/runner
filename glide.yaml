@@ -10,10 +10,12 @@ import:
   subpackages:
   - statsd
 - package: github.com/docker/distribution
-  version: ^2.5.1
+  version: master
   subpackages:
   - manifest/schema1
 - package: github.com/fsouza/go-dockerclient
+  version: master
 - package: github.com/heroku/docker-registry-client
+  version: master
   subpackages:
   - registry
