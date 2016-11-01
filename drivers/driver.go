@@ -3,12 +3,13 @@
 package drivers
 
 import (
+	"context"
 	"errors"
 	"io"
 	"strings"
 	"time"
 
-	"context"
+	"github.com/pivotal-golang/bytefmt"
 )
 
 type Driver interface {
@@ -113,9 +114,32 @@ const (
 	StatusCancelled = "cancelled"
 )
 
+// Allows us to implement custom unmarshaling of JSON and envconfig.
+type Memory uint64
+
+func (m *Memory) Unmarshal(s string) error {
+	temp, err := bytefmt.ToBytes(s)
+	if err != nil {
+		return err
+	}
+
+	*m = Memory(temp)
+	return nil
+}
+
+func (m *Memory) UnmarshalJSON(p []byte) error {
+	temp, err := bytefmt.ToBytes(string(p))
+	if err != nil {
+		return err
+	}
+
+	*m = Memory(temp)
+	return nil
+}
+
 type Config struct {
 	Docker         string `json:"docker" envconfig:"default=unix:///var/run/docker.sock,DOCKER"`
-	Memory         uint64 `json:"memory" envconfig:"-"` // TODO uses outer now
+	Memory         Memory `json:"memory" envconfig:"default=256M,MEMORY_PER_JOB"`
 	CPUShares      int64  `json:"cpu_shares" envconfig:"default=2,CPU_SHARES"`
 	DefaultTimeout uint   `json:"timeout" envconfig:"default=3600,TASK_TIMEOUT"`
 }
