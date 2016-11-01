@@ -19,3 +19,4 @@ import:
   version: master
   subpackages:
   - registry
+- package: github.com/pivotal-golang/bytefmt
