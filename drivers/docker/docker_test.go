@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/iron-io/runner/common"
 	"github.com/iron-io/runner/drivers"
+	"github.com/vrischmann/envconfig"
 )
 
 type taskDockerTest struct {
@@ -85,5 +87,20 @@ func TestRunnerDockerStdin(t *testing.T) {
 	got := output.String()
 	if !strings.Contains(got, expect) {
 		t.Errorf("Test expected output to contain '%s', got '%s'", expect, got)
+	}
+}
+
+func TestConfigLoadMemory(t *testing.T) {
+	if err := os.Setenv("MEMORY_PER_JOB", "128M"); err != nil {
+		t.Fatalf("Could not set MEMORY_PER_JOB: %v", err)
+	}
+
+	var conf drivers.Config
+	if err := envconfig.Init(&conf); err != nil {
+		t.Fatalf("Could not read config: %v", err)
+	}
+
+	if conf.Memory != 128*1024*1024 {
+		t.Fatalf("Memory read from config should match 128M, got %d", conf.Memory)
 	}
 }
