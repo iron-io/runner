@@ -508,32 +508,43 @@ func cherryPick(ds *docker.Stats) drivers.Stat {
 		cpuKernel = (float64(ds.CPUStats.CPUUsage.UsageInKernelmode-ds.PreCPUStats.CPUUsage.UsageInKernelmode) / systemDelta) * cores * 100.0
 		cpuTotal = (float64(ds.CPUStats.CPUUsage.TotalUsage-ds.PreCPUStats.CPUUsage.TotalUsage) / systemDelta) * cores * 100.0
 	}
+
+	var rx, tx float64
+	for _, v := range ds.Networks {
+		rx += float64(v.RxBytes)
+		tx += float64(v.TxBytes)
+	}
+
+	var blkRead, blkWrite uint64
+	for _, bioEntry := range ds.BlkioStats.IOServiceBytesRecursive {
+		switch strings.ToLower(bioEntry.Op) {
+		case "read":
+			blkRead = blkRead + bioEntry.Value
+		case "write":
+			blkWrite = blkWrite + bioEntry.Value
+		}
+	}
+
 	return drivers.Stat{
 		Timestamp: ds.Read,
 		Metrics: map[string]uint64{
 			// source: https://godoc.org/github.com/fsouza/go-dockerclient#Stats
 			// ex (for future expansion): {"read":"2016-08-03T18:08:05Z","pids_stats":{},"network":{},"networks":{"eth0":{"rx_bytes":508,"tx_packets":6,"rx_packets":6,"tx_bytes":508}},"memory_stats":{"stats":{"cache":16384,"pgpgout":281,"rss":8826880,"pgpgin":2440,"total_rss":8826880,"hierarchical_memory_limit":536870912,"total_pgfault":3809,"active_anon":8843264,"total_active_anon":8843264,"total_pgpgout":281,"total_cache":16384,"pgfault":3809,"total_pgpgin":2440},"max_usage":8953856,"usage":8953856,"limit":536870912},"blkio_stats":{"io_service_bytes_recursive":[{"major":202,"op":"Read"},{"major":202,"op":"Write"},{"major":202,"op":"Sync"},{"major":202,"op":"Async"},{"major":202,"op":"Total"}],"io_serviced_recursive":[{"major":202,"op":"Read"},{"major":202,"op":"Write"},{"major":202,"op":"Sync"},{"major":202,"op":"Async"},{"major":202,"op":"Total"}]},"cpu_stats":{"cpu_usage":{"percpu_usage":[47641874],"usage_in_usermode":30000000,"total_usage":47641874},"system_cpu_usage":8880800500000000,"throttling_data":{}},"precpu_stats":{"cpu_usage":{"percpu_usage":[44946186],"usage_in_usermode":30000000,"total_usage":44946186},"system_cpu_usage":8880799510000000,"throttling_data":{}}}
-			// TODO could prefix these with net_ or make map[string]map[string]uint64 to group... thoughts?
+			// mostly stolen values from docker stats cli api...
 
 			// net
-			"rx_dropped": ds.Network.RxDropped,
-			"rx_bytes":   ds.Network.RxBytes,
-			"rx_errors":  ds.Network.RxErrors,
-			"tx_packets": ds.Network.TxPackets,
-			"tx_dropped": ds.Network.TxDropped,
-			"rx_packets": ds.Network.RxPackets,
-			"tx_errors":  ds.Network.TxErrors,
-			"tx_bytes":   ds.Network.TxBytes,
+			"net_rx": uint64(rx),
+			"net_tx": uint64(tx),
 			// mem
 			"mem_limit": ds.MemoryStats.Limit,
 			"mem_usage": ds.MemoryStats.Usage,
 			// i/o
-			// TODO weird format in lib... probably ok to omit disk stats for a while, memory is main one
+			"blkio_read":  blkRead,
+			"blkio_write": blkWrite,
 			// cpu
 			"cpu_user":   uint64(cpuUser),
 			"cpu_total":  uint64(cpuTotal),
 			"cpu_kernel": uint64(cpuKernel),
-			// TODO probably don't show cpu throttling? ;)
 		},
 	}
 }
