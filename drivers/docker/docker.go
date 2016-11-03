@@ -371,17 +371,14 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
 	log := common.Logger(ctx)
 	container := containerID(task)
-	t := drv.conf.DefaultTimeout
-	if n := task.Timeout(); n != 0 {
-		t = n
+	timeout := task.Timeout()
+
+	var cancel context.CancelFunc
+	if timeout <= 0 {
+		ctx, cancel = context.WithCancel(ctx)
+	} else {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 	}
-	if t == 0 {
-		t = 3600 // TODO we really should panic, or reconsider how this gets here
-		log.Warn("Task timeout or runner configuration was set to zero, using default")
-	}
-	// TODO: make sure tasks don't have excessive timeouts? 24h?
-	// TODO: record task timeout values so we can get a good idea of what people generally set it to.
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(t)*time.Second)
 	defer cancel() // do this so that after Run exits, nanny and collect stop
 	var complete bool
 	defer func() { complete = true }() // run before cancel is called

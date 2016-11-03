@@ -62,8 +62,8 @@ type ContainerTask interface {
 	Id() string
 	// Image returns the runtime specific image to run.
 	Image() string
-	// Timeout is in seconds.
-	Timeout() uint
+	// Timeout specifies the maximum time a task is allowed to run. Return 0 to let it run forever.
+	Timeout() time.Duration
 	// Driver will write output log from task execution to these writers. Must be
 	// non-nil. Use io.Discard if log is irrelevant.
 	Logger() (stdout, stderr io.Writer)
@@ -138,19 +138,17 @@ func (m *Memory) UnmarshalJSON(p []byte) error {
 }
 
 type Config struct {
-	Docker         string `json:"docker" envconfig:"default=unix:///var/run/docker.sock,DOCKER"`
-	Memory         Memory `json:"memory" envconfig:"default=256M,MEMORY_PER_JOB"`
-	CPUShares      int64  `json:"cpu_shares" envconfig:"default=2,CPU_SHARES"`
-	DefaultTimeout uint   `json:"timeout" envconfig:"default=3600,TASK_TIMEOUT"`
+	Docker    string `json:"docker" envconfig:"default=unix:///var/run/docker.sock,DOCKER"`
+	Memory    Memory `json:"memory" envconfig:"default=256M,MEMORY_PER_JOB"`
+	CPUShares int64  `json:"cpu_shares" envconfig:"default=2,CPU_SHARES"`
 }
 
 // for tests
 func DefaultConfig() Config {
 	return Config{
-		Docker:         "unix:///var/run/docker.sock",
-		Memory:         256 * 1024 * 1024,
-		CPUShares:      0,
-		DefaultTimeout: 3600,
+		Docker:    "unix:///var/run/docker.sock",
+		Memory:    256 * 1024 * 1024,
+		CPUShares: 0,
 	}
 }
 
