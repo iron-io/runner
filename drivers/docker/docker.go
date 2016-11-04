@@ -539,8 +539,8 @@ func cherryPick(ds *docker.Stats) drivers.Stat {
 			"mem_limit": ds.MemoryStats.Limit,
 			"mem_usage": ds.MemoryStats.Usage,
 			// i/o
-			"blkio_read":  blkRead,
-			"blkio_write": blkWrite,
+			"disk_read":  blkRead,
+			"disk_write": blkWrite,
 			// cpu
 			"cpu_user":   uint64(cpuUser),
 			"cpu_total":  uint64(cpuTotal),
