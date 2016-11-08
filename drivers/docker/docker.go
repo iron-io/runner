@@ -574,12 +574,6 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error) {
 	log := common.Logger(ctx)
 
-	select {
-	case status := <-sentence: // use this if timed out / canceled
-		return status, nil
-	default:
-	}
-
 	cinfo, err := drv.docker.InspectContainer(container)
 	if err != nil {
 		// this is pretty sad, but better to say we had an error than to not.
@@ -591,6 +585,20 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 	if cinfo.State.Running {
 		log.Warn("getting status of task that is still running, need to fix this")
 		return "", nil
+	}
+
+	log.WithFields(logrus.Fields{
+		"exit_code":          exitCode,
+		"container_running":  cinfo.State.Running,
+		"container_status":   cinfo.State.Status,
+		"container_finished": cinfo.State.FinishedAt,
+		"container_error":    cinfo.State.Error,
+	}).Info("container status")
+
+	select { // do this after inspect so we can see exit code
+	case status := <-sentence: // use this if timed out / canceled
+		return status, nil
+	default:
 	}
 
 	switch exitCode {
