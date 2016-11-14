@@ -485,12 +485,6 @@ func (drv *DockerDriver) collectStats(ctx context.Context, container string, tas
 			Done:   done, // A flag that enables stopping the stats operation
 		})
 
-		// the Stats implementation has a bug where it launches multiple goroutines
-		// that send stats out over a pipe. When the Done channel is closed, the
-		// read end of the pipe is closed immediately. The Stats() code path may
-		// still read from the pipe, or the HTTP stream may still write to the
-		// pipe. Either of these will result in a io.ErrClosedPipe. Also see
-		// https://github.com/fsouza/go-dockerclient/issues/423.
 		if err != nil && err != io.ErrClosedPipe {
 			logrus.WithError(err).WithFields(logrus.Fields{"container": container, "task_id": task.Id()}).Error("error streaming docker stats for task")
 		}

@@ -302,9 +302,14 @@ func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
 }
 
 func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {
-	err = d.retry(func() error {
-		err = d.docker.Stats(opts)
-		return err
-	})
-	return err
+	// we can't retry this one this way since the callee closes the
+	// stats chan, need a fancier retry mechanism where we can swap out
+	// channels, but stats isn't crucial so... be lazy for now
+	return d.docker.Stats(opts)
+
+	//err = d.retry(func() error {
+	//err = d.docker.Stats(opts)
+	//return err
+	//})
+	//return err
 }
