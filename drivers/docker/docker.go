@@ -285,8 +285,10 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 				"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
 				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
 			}).WithError(err).Error("Could not create container")
-			// TODO basically no chance that creating a container failing is a user's fault, though it may be possible
-			// via certain invalid args, tbd
+
+			if ce := containerConfigError(err); ce != nil {
+				return nil, common.UserError(fmt.Errorf("Failed to create container from task configuration '%s'", ce))
+			}
 			return nil, err
 		}
 	}
