@@ -18,6 +18,8 @@ package docker
 
 import (
 	"crypto/tls"
+	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -135,7 +137,7 @@ func (d *dockerWrap) retry(f func() error) error {
 		timer := d.NewTimer("docker", "latency", 1)
 		err = filter(f())
 		timer.Measure()
-		if common.IsTemporary(err) || isDocker500(err) {
+		if common.IsTemporary(err) || isDocker50x(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
 			d.Inc("task", "error.docker", 1, 1)
@@ -149,9 +151,28 @@ func (d *dockerWrap) retry(f func() error) error {
 	return err
 }
 
-func isDocker500(err error) bool {
+func isDocker50x(err error) bool {
 	derr, ok := err.(*docker.Error)
 	return ok && derr.Status >= 500
+}
+
+func containerConfigError(err error) error {
+	derr, ok := err.(*docker.Error)
+	if ok && derr.Status == 400 {
+		// derr.Message is a JSON response from docker, which has a "message" field we want to extract if possible.
+		var v struct {
+			Msg string `json:"message"`
+		}
+
+		err := json.Unmarshal([]byte(derr.Message), &v)
+		if err != nil {
+			// If message was not valid JSON, the raw body is still better than nothing.
+			return fmt.Errorf("%s", derr.Message)
+		}
+		return fmt.Errorf("%s", v.Msg)
+	}
+
+	return nil
 }
 
 type temporary struct {
