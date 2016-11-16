@@ -230,6 +230,7 @@ func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, er
 			break
 		}
 		logrus.WithError(err).Warn("retrying wait container (this is ok)")
+		time.Sleep(1 * time.Second)
 	}
 	return code, err
 }
