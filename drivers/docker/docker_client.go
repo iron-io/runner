@@ -218,6 +218,7 @@ func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, er
 		// backup bail mechanism so this doesn't sit here forever
 		select {
 		case <-ctx.Done():
+			return -1, ctx.Err()
 		default:
 		}
 
