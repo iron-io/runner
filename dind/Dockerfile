@@ -13,11 +13,12 @@
 # limitations under the License.
 
 
-FROM docker:1.12.1-dind
+FROM docker:1.12.3-dind
 
 RUN apk update && apk upgrade && apk add --no-cache ca-certificates
 
 COPY entrypoint.sh /usr/local/bin/
+COPY dind.sh /usr/local/bin/
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
