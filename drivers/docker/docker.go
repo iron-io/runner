@@ -476,6 +476,12 @@ func (drv *DockerDriver) collectStats(ctx context.Context, container string, tas
 	defer close(done)
 	dstats := make(chan *docker.Stats, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.WithFields(logrus.Fields{"container": container, "task_id": task.Id(), "panic": r}).Error("recovering from panic while streaming docker stats for task")
+			}
+		}()
+
 		// NOTE: docker automatically streams every 1s. we can skip or avg samples if we'd like but
 		// the memory overhead is < 1MB for 3600 stat points so this seems fine, seems better to stream
 		// (internal docker api streams) than open/close stream for 1 sample over and over.
