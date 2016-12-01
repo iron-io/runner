@@ -1,5 +1,5 @@
-hash: 9ea577fb26a0cb7f5eff2f412bb9ee4ab75514625f674b6a22618e73d41f5044
-updated: 2016-10-31T17:35:55.012819798-07:00
+hash: bc40ad42f5da8390036ed5da271c2b3ef037e6b5ebcf836a5bc1b630ba8107b5
+updated: 2016-12-01T10:57:08.81176988-08:00
 imports:
 - name: github.com/amir/raidman
   version: c74861fe6a7bb8ede0a010ce4485bdbb4fc4c985
@@ -10,40 +10,44 @@ imports:
   subpackages:
   - statsd
 - name: github.com/docker/distribution
-  version: 252cc27ab1272108bfd74cf939d354db77862d93
+  version: 99cb7c0946d2f5a38015443e515dc916295064d7
   subpackages:
-  - manifest/schema1
   - context
   - digest
   - manifest
+  - manifest/schema1
   - reference
   - uuid
 - name: github.com/docker/docker
-  version: 9bd8c1d3321d1b264e84ff5fba4dc04730c264f3
+  version: 0f5c9d301b9b1cca66b3ea0f9dec3b5317d3686d
   subpackages:
-  - api/types/swarm
   - opts
   - pkg/archive
   - pkg/fileutils
   - pkg/homedir
-  - pkg/stdcopy
-  - api/types/mount
-  - api/types/filters
-  - pkg/idtools
   - pkg/ioutils
+  - pkg/mflag
+  - pkg/parsers
   - pkg/pools
   - pkg/promise
+  - pkg/stdcopy
   - pkg/system
-  - pkg/longpath
-  - api/types/versions
+  - pkg/ulimit
+  - pkg/units
+  - volume
+- name: github.com/docker/engine-api
+  version: 4290f40c056686fcaa5c9caf02eac1dde9315adf
+  subpackages:
+  - types/mount
+  - types/swarm
 - name: github.com/docker/go-units
   version: f2145db703495b2e525c59662db69a7344b00bb8
 - name: github.com/docker/libtrust
   version: fa567046d9b14f6aa788882a950d69651d230b21
 - name: github.com/fsouza/go-dockerclient
-  version: 4bae70ae976745ea1cd0db139b53f83a7bcb898d
+  version: 17a01eb6718ef48332c2708c037e6f284a650dbd
 - name: github.com/golang/protobuf
-  version: 2402d76f3d41f928c7902a765dfc872356dd3aad
+  version: 8d92cf5fc15a4382f8964b08e1f42a75c0591aa3
   subpackages:
   - proto
 - name: github.com/gorilla/context
@@ -61,26 +65,24 @@ imports:
 - name: github.com/opencontainers/runc
   version: 8d505cb9dc8d665c59a7f1491bf0e2a6bd5a5319
   subpackages:
-  - libcontainer/system
   - libcontainer/user
 - name: github.com/pivotal-golang/bytefmt
   version: b12c1522f4cbb5f35861bd5dd2c39a4fa996441a
 - name: github.com/Sirupsen/logrus
-  version: 4b6ea7319e214d98c938f12692336f7ca9348d6b
+  version: d26492970760ca5d33129d2d799e34be5c4782eb
   subpackages:
   - hooks/syslog
 - name: golang.org/x/net
   version: 4876518f9e71663000c348837735820161a42df7
   subpackages:
-  - proxy
   - context
   - context/ctxhttp
+  - proxy
 - name: golang.org/x/sys
   version: 9eef40adf05b951699605195b829612bd7b69952
   subpackages:
   - unix
   - windows
-devImports: []
 testImports:
 - name: github.com/vrischmann/envconfig
   version: 757beaaeac8d14bcc7ea3f71488d65cf45cf2eff
