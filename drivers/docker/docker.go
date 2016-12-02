@@ -253,6 +253,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 			StdinOnce:   true,
 		},
 		HostConfig: &docker.HostConfig{},
+		Context:    ctx,
 	}
 
 	volumes := task.Volumes()
@@ -366,7 +367,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 
 	log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).Info("Pulling image")
 
-	err = drv.docker.PullImage(docker.PullImageOptions{Repository: globalRepo, Tag: tag}, config)
+	err = drv.docker.PullImage(docker.PullImageOptions{Repository: globalRepo, Tag: tag, Context: ctx}, config)
 	if err != nil {
 		drv.Inc("task", "error.pull."+stats.AsStatField(task.Image()), 1, 1)
 		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).WithError(err).Error("Failed to pull image")
@@ -567,7 +568,7 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
 	log.WithFields(logrus.Fields{"container": cID}).Debug("Starting container execution")
-	err = drv.docker.StartContainer(cID, nil)
+	err = drv.docker.StartContainerWithContext(cID, nil, ctx)
 	startTimer.Measure()
 	if err != nil {
 		dockerErr, ok := err.(*docker.Error)
@@ -613,8 +614,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 
 	switch exitCode {
 	default:
-		// TODO exit code error masks log output if made user friendly, but if there is no log output then message will be left blank (is it ok?)
-		return drivers.StatusError, fmt.Errorf("exit code %d", exitCode)
+		return drivers.StatusError, common.UserError(fmt.Errorf("exit code %d", exitCode))
 	case 0:
 		return drivers.StatusSuccess, nil
 	case 137: // OOM

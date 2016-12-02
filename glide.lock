@@ -1,49 +1,67 @@
-hash: 9ea577fb26a0cb7f5eff2f412bb9ee4ab75514625f674b6a22618e73d41f5044
-updated: 2016-10-31T17:35:55.012819798-07:00
+hash: 31273f81e8268e30026f0cbf0172777b177a3e1cccee269cb1467fb16bdfc59e
+updated: 2016-12-02T11:01:01.49149698-08:00
 imports:
 - name: github.com/amir/raidman
   version: c74861fe6a7bb8ede0a010ce4485bdbb4fc4c985
   subpackages:
   - proto
+- name: github.com/Azure/go-ansiterm
+  version: fa152c58bc15761d0200cb75fe958b89a9d4888e
+  subpackages:
+  - winterm
 - name: github.com/cactus/go-statsd-client
   version: 91c326c3f7bd20f0226d3d1c289dd9f8ce28d33d
   subpackages:
   - statsd
 - name: github.com/docker/distribution
-  version: 252cc27ab1272108bfd74cf939d354db77862d93
+  version: 99cb7c0946d2f5a38015443e515dc916295064d7
   subpackages:
-  - manifest/schema1
   - context
   - digest
   - manifest
+  - manifest/schema1
   - reference
   - uuid
 - name: github.com/docker/docker
-  version: 9bd8c1d3321d1b264e84ff5fba4dc04730c264f3
+  version: fddb5a7f2ab29be441bc797f7e79fffc5cc531d3
   subpackages:
+  - api/types
+  - api/types/blkiodev
+  - api/types/container
+  - api/types/filters
+  - api/types/mount
+  - api/types/network
+  - api/types/registry
+  - api/types/strslice
   - api/types/swarm
+  - api/types/versions
   - opts
   - pkg/archive
   - pkg/fileutils
   - pkg/homedir
-  - pkg/stdcopy
-  - api/types/mount
-  - api/types/filters
   - pkg/idtools
   - pkg/ioutils
+  - pkg/jsonlog
+  - pkg/jsonmessage
+  - pkg/longpath
   - pkg/pools
   - pkg/promise
+  - pkg/stdcopy
   - pkg/system
-  - pkg/longpath
-  - api/types/versions
+  - pkg/term
+  - pkg/term/windows
+- name: github.com/docker/go-connections
+  version: 4ccf312bf1d35e5dbda654e57a9be4c3f3cd0366
+  subpackages:
+  - nat
 - name: github.com/docker/go-units
   version: f2145db703495b2e525c59662db69a7344b00bb8
 - name: github.com/docker/libtrust
   version: fa567046d9b14f6aa788882a950d69651d230b21
 - name: github.com/fsouza/go-dockerclient
-  version: 4bae70ae976745ea1cd0db139b53f83a7bcb898d
+  version: 0d9f8ca94548b03557f0eba59b4289c7e8512c4a
 - name: github.com/golang/protobuf
-  version: 2402d76f3d41f928c7902a765dfc872356dd3aad
+  version: 8d92cf5fc15a4382f8964b08e1f42a75c0591aa3
   subpackages:
   - proto
 - name: github.com/gorilla/context
@@ -53,7 +71,7 @@ imports:
 - name: github.com/hashicorp/go-cleanhttp
   version: ad28ea4487f05916463e2423a55166280e8254b5
 - name: github.com/heroku/docker-registry-client
-  version: 2a2e6b9e3eed0a98d438f111ba7469744c07281d
+  version: 5636cf1ddbed886e1f34d4d54ff7bf492ca6fff2
   subpackages:
   - registry
 - name: github.com/Microsoft/go-winio
@@ -66,21 +84,20 @@ imports:
 - name: github.com/pivotal-golang/bytefmt
   version: b12c1522f4cbb5f35861bd5dd2c39a4fa996441a
 - name: github.com/Sirupsen/logrus
-  version: 4b6ea7319e214d98c938f12692336f7ca9348d6b
+  version: d26492970760ca5d33129d2d799e34be5c4782eb
   subpackages:
   - hooks/syslog
 - name: golang.org/x/net
   version: 4876518f9e71663000c348837735820161a42df7
   subpackages:
-  - proxy
   - context
   - context/ctxhttp
+  - proxy
 - name: golang.org/x/sys
   version: 9eef40adf05b951699605195b829612bd7b69952
   subpackages:
   - unix
   - windows
-devImports: []
 testImports:
 - name: github.com/vrischmann/envconfig
   version: 757beaaeac8d14bcc7ea3f71488d65cf45cf2eff

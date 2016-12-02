@@ -17,6 +17,7 @@
 package docker
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -24,8 +25,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"context"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
@@ -42,7 +41,7 @@ type dockerClient interface {
 
 	AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (docker.CloseWaiter, error)
 	WaitContainer(ctx context.Context, id string) (int, error)
-	StartContainer(id string, hostConfig *docker.HostConfig) error
+	StartContainerWithContext(id string, hostConfig *docker.HostConfig, ctx context.Context) error
 	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
 	RemoveContainer(opts docker.RemoveContainerOptions) error
 	PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) error
@@ -61,23 +60,23 @@ func newClient(env *common.Environment) dockerClient {
 		logrus.WithError(err).Fatal("couldn't create docker client")
 	}
 
-	client.HTTPClient = &http.Client{
-		Transport: &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout:   10 * time.Second,
-				KeepAlive: 1 * time.Minute,
-			}).Dial,
-			TLSClientConfig: &tls.Config{
-				ClientSessionCache: tls.NewLRUClientSessionCache(8192),
-			},
-			TLSHandshakeTimeout:   10 * time.Second,
-			MaxIdleConnsPerHost:   512,
-			Proxy:                 http.ProxyFromEnvironment,
-			MaxIdleConns:          512,
-			IdleConnTimeout:       90 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
+	t := &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 1 * time.Minute,
+		}).Dial,
+		TLSClientConfig: &tls.Config{
+			ClientSessionCache: tls.NewLRUClientSessionCache(8192),
 		},
+		TLSHandshakeTimeout:   10 * time.Second,
+		MaxIdleConnsPerHost:   512,
+		Proxy:                 http.ProxyFromEnvironment,
+		MaxIdleConns:          512,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
+
+	client.HTTPClient = &http.Client{Transport: t}
 
 	if err := client.Ping(); err != nil {
 		logrus.WithError(err).Fatal("couldn't connect to docker daemon")
@@ -89,35 +88,21 @@ func newClient(env *common.Environment) dockerClient {
 	// long timeout used for:
 	// * pull
 	// * create_container
+	// * start_container
+	// * wait_container
 
 	clientLongTimeout, err := docker.NewClientFromEnv()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't create other docker client")
 	}
 
-	clientLongTimeout.HTTPClient = &http.Client{
-		Transport: &http.Transport{
-			Dial: (&net.Dialer{
-				Timeout:   10 * time.Second,
-				KeepAlive: 1 * time.Minute,
-			}).Dial,
-			TLSClientConfig: &tls.Config{
-				ClientSessionCache: tls.NewLRUClientSessionCache(8192),
-			},
-			TLSHandshakeTimeout:   10 * time.Second,
-			MaxIdleConnsPerHost:   512,
-			Proxy:                 http.ProxyFromEnvironment,
-			MaxIdleConns:          512,
-			IdleConnTimeout:       90 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
-	}
+	clientLongTimeout.HTTPClient = &http.Client{Transport: t}
 
 	if err := clientLongTimeout.Ping(); err != nil {
 		logrus.WithError(err).Fatal("couldn't connect to other docker daemon")
 	}
 
-	client.SetTimeout(30 * time.Minute) // TODO ? this seems high but... hub can be really slow
+	clientLongTimeout.SetTimeout(30 * time.Minute)
 
 	return &dockerWrap{client, clientLongTimeout, env}
 }
@@ -213,7 +198,7 @@ func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerO
 
 func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, err error) {
 	// special one, since fsouza doesn't have context on this one and tasks can
-	// take longer than 20 minutes
+	// take longer than retry limit
 	for {
 		// backup bail mechanism so this doesn't sit here forever
 		select {
@@ -223,7 +208,7 @@ func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, er
 		}
 
 		err = d.retry(func() error {
-			code, err = d.docker.WaitContainer(id)
+			code, err = d.dockerLongTimeout.WaitContainer(id)
 			return err
 		})
 		err = filterNoSuchContainer(err)
@@ -264,9 +249,9 @@ func filterNotRunning(err error) error {
 	return err
 }
 
-func (d *dockerWrap) StartContainer(id string, hostConfig *docker.HostConfig) (err error) {
+func (d *dockerWrap) StartContainerWithContext(id string, hostConfig *docker.HostConfig, ctx context.Context) (err error) {
 	err = d.retry(func() error {
-		err = d.docker.StartContainer(id, hostConfig)
+		err = d.dockerLongTimeout.StartContainerWithContext(id, hostConfig, ctx)
 		if _, ok := err.(*docker.NoSuchContainer); ok {
 			// for some reason create will sometimes return successfully then say no such container here. wtf. so just retry like normal
 			return temp(err)
