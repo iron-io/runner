@@ -609,6 +609,13 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 	select { // do this after inspect so we can see exit code
 	case status := <-sentence: // use this if timed out / canceled
 		return status, nil
+	case <-ctx.Done(): // sometimes we beat nanny, yay scheduling
+		switch ctx.Err() {
+		case context.DeadlineExceeded:
+			return drivers.StatusTimeout, nil
+		case context.Canceled:
+			return drivers.StatusCancelled, nil
+		}
 	default:
 	}
 
