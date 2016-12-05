@@ -401,8 +401,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	defer func() { complete = true }() // run before cancel is called
 	ctx = context.WithValue(ctx, completeKey, &complete)
 
-	sentence := make(chan string, 1)
-	go drv.nanny(ctx, container, task, sentence)
+	go drv.nanny(ctx, container, task)
 	go drv.collectStats(ctx, container, task)
 
 	mwOut, mwErr := task.Logger()
@@ -435,8 +434,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		log.WithError(err).Error("attach to container returned error, task may be missing logs")
 	}
 
-	// TODO need to ensure task is no longer running
-	status, err := drv.status(ctx, container, sentence)
+	status, err := drv.status(ctx, container)
 	return &runResult{
 		StatusValue: status,
 		error:       err,
@@ -446,20 +444,13 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 const completeKey = "complete"
 
 // watch for cancel or timeout and kill process.
-func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask, sentence chan<- string) {
+func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask) {
 	select {
 	case <-ctx.Done():
 		if *(ctx.Value(completeKey).(*bool)) {
 			return
 		}
-		switch ctx.Err() {
-		case context.DeadlineExceeded:
-			sentence <- drivers.StatusTimeout
-			drv.cancel(container)
-		case context.Canceled:
-			sentence <- drivers.StatusCancelled
-			drv.cancel(container)
-		}
+		drv.cancel(container)
 	}
 }
 
@@ -582,7 +573,7 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 	return cID, nil
 }
 
-func (drv *DockerDriver) status(ctx context.Context, container string, sentence <-chan string) (status string, err error) {
+func (drv *DockerDriver) status(ctx context.Context, container string) (status string, err error) {
 	log := common.Logger(ctx)
 
 	cinfo, err := drv.docker.InspectContainer(container)
@@ -607,9 +598,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string, sentence 
 	}).Info("container status")
 
 	select { // do this after inspect so we can see exit code
-	case status := <-sentence: // use this if timed out / canceled
-		return status, nil
-	case <-ctx.Done(): // sometimes we beat nanny, yay scheduling
+	case <-ctx.Done(): // check if task was canceled or timed out
 		switch ctx.Err() {
 		case context.DeadlineExceeded:
 			return drivers.StatusTimeout, nil
