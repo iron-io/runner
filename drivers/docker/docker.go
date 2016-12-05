@@ -425,7 +425,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
 
 	// can discard error, inspect will tell us about the task and wait will retry under the hood
-	drv.docker.WaitContainer(ctx, container)
+	drv.docker.WaitContainerWithContext(container, ctx)
 	taskTimer.Measure()
 
 	waiter.Close()

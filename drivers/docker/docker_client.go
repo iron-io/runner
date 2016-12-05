@@ -31,6 +31,10 @@ import (
 	"github.com/iron-io/runner/common"
 )
 
+const (
+	retryTimeout = 10 * time.Minute
+)
+
 // wrap docker client calls so we can retry 500s, kind of sucks but fsouza doesn't
 // bake in retries we can use internally, could contribute it at some point, would
 // be much more convenient if we didn't have to do this, but it's better than ad hoc retries.
@@ -40,7 +44,7 @@ type dockerClient interface {
 	// Each of these are github.com/fsouza/go-dockerclient methods
 
 	AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (docker.CloseWaiter, error)
-	WaitContainer(ctx context.Context, id string) (int, error)
+	WaitContainerWithContext(id string, ctx context.Context) (int, error)
 	StartContainerWithContext(id string, hostConfig *docker.HostConfig, ctx context.Context) error
 	CreateContainer(opts docker.CreateContainerOptions) (*docker.Container, error)
 	RemoveContainer(opts docker.RemoveContainerOptions) error
@@ -84,56 +88,51 @@ func newClient(env *common.Environment) dockerClient {
 
 	client.SetTimeout(120 * time.Second)
 
-	// get 2 clients, one with a small timeout, one with a large timeout
-	// long timeout used for:
-	// * pull
-	// * create_container
-	// * start_container
-	// * wait_container
+	// get 2 clients, one with a small timeout, one with no timeout to use contexts
 
-	clientLongTimeout, err := docker.NewClientFromEnv()
+	clientNoTimeout, err := docker.NewClientFromEnv()
 	if err != nil {
 		logrus.WithError(err).Fatal("couldn't create other docker client")
 	}
 
-	clientLongTimeout.HTTPClient = &http.Client{Transport: t}
+	clientNoTimeout.HTTPClient = &http.Client{Transport: t}
 
-	if err := clientLongTimeout.Ping(); err != nil {
+	if err := clientNoTimeout.Ping(); err != nil {
 		logrus.WithError(err).Fatal("couldn't connect to other docker daemon")
 	}
 
-	clientLongTimeout.SetTimeout(30 * time.Minute)
-
-	return &dockerWrap{client, clientLongTimeout, env}
+	return &dockerWrap{client, clientNoTimeout, env}
 }
 
 type dockerWrap struct {
-	docker            *docker.Client
-	dockerLongTimeout *docker.Client
+	docker          *docker.Client
+	dockerNoTimeout *docker.Client
 	*common.Environment
 }
 
-func (d *dockerWrap) retry(f func() error) error {
+func (d *dockerWrap) retry(ctx context.Context, f func() error) error {
 	var b common.Backoff
-	then := time.Now()
-	limit := 10 * time.Minute
-	var err error
-	for time.Since(then) < limit {
-		timer := d.NewTimer("docker", "latency", 1)
-		err = filter(f())
-		timer.Measure()
+	for {
+		select {
+		case <-ctx.Done():
+			d.Inc("task", "fail.docker", 1, 1)
+			logrus.WithError(ctx.Err()).Warnf("retrying on docker errors timed out, restart docker or rotate this instance?")
+			return ctx.Err()
+		default:
+		}
+
+		err := filter(f())
 		if common.IsTemporary(err) || isDocker50x(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
 			d.Inc("task", "error.docker", 1, 1)
 			continue
 		}
-		d.Inc("task", "error.docker", 1, 1)
+		if err != nil {
+			d.Inc("task", "error.docker", 1, 1)
+		}
 		return err
 	}
-	d.Inc("task", "fail.docker", 1, 1)
-	logrus.WithError(err).Warnf("retrying on docker errors exceeded %s, restart docker or rotate this instance?", limit)
-	return err
 }
 
 func isDocker50x(err error) bool {
@@ -184,43 +183,6 @@ func filter(err error) error {
 	return nil
 }
 
-func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (w docker.CloseWaiter, err error) {
-	err = d.retry(func() error {
-		w, err = d.docker.AttachToContainerNonBlocking(opts)
-		if err != nil {
-			// always retry if attach errors, task is running, we want logs!
-			err = temp(err)
-		}
-		return err
-	})
-	return w, err
-}
-
-func (d *dockerWrap) WaitContainer(ctx context.Context, id string) (code int, err error) {
-	// special one, since fsouza doesn't have context on this one and tasks can
-	// take longer than retry limit
-	for {
-		// backup bail mechanism so this doesn't sit here forever
-		select {
-		case <-ctx.Done():
-			return -1, ctx.Err()
-		default:
-		}
-
-		err = d.retry(func() error {
-			code, err = d.dockerLongTimeout.WaitContainer(id)
-			return err
-		})
-		err = filterNoSuchContainer(err)
-		if err == nil {
-			break
-		}
-		logrus.WithError(err).Warn("retrying wait container (this is ok)")
-		time.Sleep(1 * time.Second)
-	}
-	return code, err
-}
-
 func filterNoSuchContainer(err error) error {
 	if err == nil {
 		return nil
@@ -249,9 +211,31 @@ func filterNotRunning(err error) error {
 	return err
 }
 
+func (d *dockerWrap) AttachToContainerNonBlocking(opts docker.AttachToContainerOptions) (w docker.CloseWaiter, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), retryTimeout)
+	defer cancel()
+	err = d.retry(ctx, func() error {
+		w, err = d.docker.AttachToContainerNonBlocking(opts)
+		if err != nil {
+			// always retry if attach errors, task is running, we want logs!
+			err = temp(err)
+		}
+		return err
+	})
+	return w, err
+}
+
+func (d *dockerWrap) WaitContainerWithContext(id string, ctx context.Context) (code int, err error) {
+	err = d.retry(ctx, func() error {
+		code, err = d.dockerNoTimeout.WaitContainerWithContext(id, ctx)
+		return err
+	})
+	return code, filterNoSuchContainer(err)
+}
+
 func (d *dockerWrap) StartContainerWithContext(id string, hostConfig *docker.HostConfig, ctx context.Context) (err error) {
-	err = d.retry(func() error {
-		err = d.dockerLongTimeout.StartContainerWithContext(id, hostConfig, ctx)
+	err = d.retry(ctx, func() error {
+		err = d.dockerNoTimeout.StartContainerWithContext(id, hostConfig, ctx)
 		if _, ok := err.(*docker.NoSuchContainer); ok {
 			// for some reason create will sometimes return successfully then say no such container here. wtf. so just retry like normal
 			return temp(err)
@@ -262,31 +246,35 @@ func (d *dockerWrap) StartContainerWithContext(id string, hostConfig *docker.Hos
 }
 
 func (d *dockerWrap) CreateContainer(opts docker.CreateContainerOptions) (c *docker.Container, err error) {
-	err = d.retry(func() error {
-		c, err = d.dockerLongTimeout.CreateContainer(opts)
+	err = d.retry(opts.Context, func() error {
+		c, err = d.dockerNoTimeout.CreateContainer(opts)
 		return err
 	})
 	return c, err
 }
 
+func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
+	err = d.retry(opts.Context, func() error {
+		err = d.dockerNoTimeout.PullImage(opts, auth)
+		return err
+	})
+	return err
+}
+
 func (d *dockerWrap) RemoveContainer(opts docker.RemoveContainerOptions) (err error) {
-	err = d.retry(func() error {
+	ctx, cancel := context.WithTimeout(context.Background(), retryTimeout)
+	defer cancel()
+	err = d.retry(ctx, func() error {
 		err = d.docker.RemoveContainer(opts)
 		return err
 	})
 	return filterNoSuchContainer(err)
 }
 
-func (d *dockerWrap) PullImage(opts docker.PullImageOptions, auth docker.AuthConfiguration) (err error) {
-	err = d.retry(func() error {
-		err = d.dockerLongTimeout.PullImage(opts, auth)
-		return err
-	})
-	return err
-}
-
 func (d *dockerWrap) InspectImage(name string) (i *docker.Image, err error) {
-	err = d.retry(func() error {
+	ctx, cancel := context.WithTimeout(context.Background(), retryTimeout)
+	defer cancel()
+	err = d.retry(ctx, func() error {
 		i, err = d.docker.InspectImage(name)
 		return err
 	})
@@ -294,7 +282,9 @@ func (d *dockerWrap) InspectImage(name string) (i *docker.Image, err error) {
 }
 
 func (d *dockerWrap) InspectContainer(id string) (c *docker.Container, err error) {
-	err = d.retry(func() error {
+	ctx, cancel := context.WithTimeout(context.Background(), retryTimeout)
+	defer cancel()
+	err = d.retry(ctx, func() error {
 		c, err = d.docker.InspectContainer(id)
 		return err
 	})
@@ -302,7 +292,9 @@ func (d *dockerWrap) InspectContainer(id string) (c *docker.Container, err error
 }
 
 func (d *dockerWrap) StopContainer(id string, timeout uint) (err error) {
-	err = d.retry(func() error {
+	ctx, cancel := context.WithTimeout(context.Background(), retryTimeout)
+	defer cancel()
+	err = d.retry(ctx, func() error {
 		err = d.docker.StopContainer(id, timeout)
 		return err
 	})

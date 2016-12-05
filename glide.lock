@@ -1,5 +1,5 @@
 hash: 31273f81e8268e30026f0cbf0172777b177a3e1cccee269cb1467fb16bdfc59e
-updated: 2016-12-02T11:01:01.49149698-08:00
+updated: 2016-12-05T09:18:42.722365503-08:00
 imports:
 - name: github.com/amir/raidman
   version: c74861fe6a7bb8ede0a010ce4485bdbb4fc4c985
@@ -59,7 +59,7 @@ imports:
 - name: github.com/docker/libtrust
   version: fa567046d9b14f6aa788882a950d69651d230b21
 - name: github.com/fsouza/go-dockerclient
-  version: 0d9f8ca94548b03557f0eba59b4289c7e8512c4a
+  version: 773542a4a30a7d9b5a3ddfca64e593508299ddda
 - name: github.com/golang/protobuf
   version: 8d92cf5fc15a4382f8964b08e1f42a75c0591aa3
   subpackages:
