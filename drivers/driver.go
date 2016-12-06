@@ -26,14 +26,12 @@ import (
 	"github.com/pivotal-golang/bytefmt"
 )
 
-type Driver interface {
-	// Prepare can be used in order to do any preparation that a specific driver
-	// may need to do before running the task, and can be useful to put
-	// preparation that the task can recover from into (i.e. if pulling an image
-	// fails because a registry is down, the task doesn't need to be failed).  It
-	// returns an io.Closer that may be used to remove any artifacts from the
-	// task, should it be allowed to run or not.
-	Prepare(ctx context.Context, task ContainerTask) (io.Closer, error)
+// A DriverCookie identifies a unique request to run a task.
+//
+// Clients should always call Close() on a DriverCookie after they are done
+// with it.
+type Cookie interface {
+	io.Closer
 
 	// Run should execute task on the implementation.
 	// RunResult captures the result of task execution. This means if task
@@ -45,8 +43,19 @@ type Driver interface {
 	//
 	// Run() MUST monitor the context. task cancellation is indicated by
 	// cancelling the context.
-	// In addition, Run() should respect the task's timeout.
-	Run(ctx context.Context, task ContainerTask) (RunResult, error)
+	Run(ctx context.Context) (RunResult, error)
+}
+
+type Driver interface {
+	// Prepare can be used in order to do any preparation that a specific driver
+	// may need to do before running the task, and can be useful to put
+	// preparation that the task can recover from into (i.e. if pulling an image
+	// fails because a registry is down, the task doesn't need to be failed).  It
+	// returns a cookie that can be used to execute the task.
+	// Callers should Close the cookie regardless of whether they run it.
+	//
+	// The returned cookie should respect the task's timeout when it is run.
+	Prepare(ctx context.Context, task ContainerTask) (Cookie, error)
 }
 
 // RunResult indicates only the final state of the task.

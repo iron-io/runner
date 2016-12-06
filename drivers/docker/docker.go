@@ -223,7 +223,7 @@ func registryForConfig(config docker.AuthConfiguration, reg string) (*registry.R
 	return r, nil
 }
 
-func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (io.Closer, error) {
+func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (drivers.Cookie, error) {
 	var cmd []string
 	if task.Command() != "" {
 		// NOTE: this is hyper-sensitive and may not be correct like this even, but it passes old tests
@@ -237,8 +237,9 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 		envvars = append(envvars, name+"="+val)
 	}
 
+	containerName := newContainerID(task)
 	container := docker.CreateContainerOptions{
-		Name: containerID(task),
+		Name: containerName,
 		Config: &docker.Config{
 			Env:         envvars,
 			Cmd:         cmd,
@@ -284,7 +285,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 		if err != docker.ErrContainerAlreadyExists {
 			logrus.WithFields(logrus.Fields{"task_id": task.Id(), "command": container.Config.Cmd, "memory": container.Config.Memory,
 				"cpu_shares": container.Config.CPUShares, "hostname": container.Config.Hostname, "name": container.Name,
-				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds,
+				"image": container.Config.Image, "volumes": container.Config.Volumes, "binds": container.HostConfig.Binds, "container": containerName,
 			}).WithError(err).Error("Could not create container")
 
 			if ce := containerConfigError(err); ce != nil {
@@ -295,14 +296,20 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	}
 
 	// discard removal error
-	return &closer{func() error { drv.removeContainer(containerID(task)); return nil }}, nil
+	return &cookie{id: containerName, task: task, drv: drv}, nil
 }
 
-type closer struct {
-	close func() error
+type cookie struct {
+	id   string
+	task drivers.ContainerTask
+	drv  *DockerDriver
 }
 
-func (c *closer) Close() error { return c.close() }
+func (c *cookie) Close() error { return c.drv.removeContainer(c.id) }
+
+func (c *cookie) Run(ctx context.Context) (drivers.RunResult, error) {
+	return c.drv.run(ctx, c.id, c.task)
+}
 
 func (drv *DockerDriver) removeContainer(container string) error {
 	removeTimer := drv.NewTimer("docker", "remove_container", 1.0)
@@ -385,9 +392,8 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 
 // Run executes the docker container. If task runs, drivers.RunResult will be returned. If something fails outside the task (ie: Docker), it will return error.
 // The docker driver will attempt to cast the task to a Auther. If that succeeds, private image support is available. See the Auther interface for how to implement this.
-func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
+func (drv *DockerDriver) run(ctx context.Context, container string, task drivers.ContainerTask) (drivers.RunResult, error) {
 	log := common.Logger(ctx)
-	container := containerID(task)
 	timeout := task.Timeout()
 
 	var cancel context.CancelFunc
@@ -401,7 +407,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 	defer func() { complete = true }() // run before cancel is called
 	ctx = context.WithValue(ctx, completeKey, &complete)
 
-	go drv.nanny(ctx, container, task)
+	go drv.nanny(ctx, container)
 	go drv.collectStats(ctx, container, task)
 
 	mwOut, mwErr := task.Logger()
@@ -416,7 +422,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 		return nil, err
 	}
 
-	_, err = drv.startTask(ctx, task)
+	err = drv.startTask(ctx, container)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +450,7 @@ func (drv *DockerDriver) Run(ctx context.Context, task drivers.ContainerTask) (d
 const completeKey = "complete"
 
 // watch for cancel or timeout and kill process.
-func (drv *DockerDriver) nanny(ctx context.Context, container string, task drivers.ContainerTask) {
+func (drv *DockerDriver) nanny(ctx context.Context, container string) {
 	select {
 	case <-ctx.Done():
 		if *(ctx.Value(completeKey).(*bool)) {
@@ -551,15 +557,16 @@ func cherryPick(ds *docker.Stats) drivers.Stat {
 	}
 }
 
-func containerID(task drivers.ContainerTask) string { return "task-" + task.Id() }
+// Introduces some randomness to prevent container name clashes where task ID remains the same.
+func newContainerID(task drivers.ContainerTask) string {
+	return fmt.Sprintf("task-%d-%s", time.Now().UnixNano(), task.Id())
+}
 
-func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTask) (dockerId string, err error) {
+func (drv *DockerDriver) startTask(ctx context.Context, container string) error {
 	log := common.Logger(ctx)
-	cID := containerID(task)
-
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
-	log.WithFields(logrus.Fields{"container": cID}).Debug("Starting container execution")
-	err = drv.docker.StartContainerWithContext(cID, nil, ctx)
+	log.WithFields(logrus.Fields{"container": container}).Debug("Starting container execution")
+	err := drv.docker.StartContainerWithContext(container, nil, ctx)
 	startTimer.Measure()
 	if err != nil {
 		dockerErr, ok := err.(*docker.Error)
@@ -567,10 +574,10 @@ func (drv *DockerDriver) startTask(ctx context.Context, task drivers.ContainerTa
 		if containerAlreadyRunning || (ok && dockerErr.Status == 304) {
 			// 304=container already started -- so we can ignore error
 		} else {
-			return "", err
+			return err
 		}
 	}
-	return cID, nil
+	return nil
 }
 
 func (drv *DockerDriver) status(ctx context.Context, container string) (status string, err error) {
