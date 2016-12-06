@@ -17,6 +17,7 @@ package docker
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -583,12 +584,8 @@ func (drv *DockerDriver) status(ctx context.Context, container string) (status s
 		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container")
 		return drivers.StatusError, err
 	}
-	exitCode := cinfo.State.ExitCode
-	if cinfo.State.Running {
-		log.Warn("getting status of task that is still running, need to fix this")
-		return "", nil
-	}
 
+	exitCode := cinfo.State.ExitCode
 	log.WithFields(logrus.Fields{
 		"exit_code":          exitCode,
 		"container_running":  cinfo.State.Running,
@@ -606,6 +603,11 @@ func (drv *DockerDriver) status(ctx context.Context, container string) (status s
 			return drivers.StatusCancelled, nil
 		}
 	default:
+	}
+
+	if cinfo.State.Running {
+		log.Warn("getting status of task that is still running, need to fix this")
+		return drivers.StatusError, errors.New("task in running state but not timed out. weird")
 	}
 
 	switch exitCode {
