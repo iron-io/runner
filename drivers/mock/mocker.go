@@ -17,9 +17,6 @@ package mock
 import (
 	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"strings"
 
 	"github.com/iron-io/runner/drivers"
 )
@@ -32,13 +29,17 @@ type Mocker struct {
 	count int
 }
 
-func (m *Mocker) Prepare(context.Context, drivers.ContainerTask) (io.Closer, error) {
-	return ioutil.NopCloser(strings.NewReader("")), nil // dummy closer
+func (m *Mocker) Prepare(context.Context, drivers.ContainerTask) (drivers.Cookie, error) {
+	return &cookie{m}, nil
 }
 
-func (m *Mocker) Run(ctx context.Context, task drivers.ContainerTask) (drivers.RunResult, error) {
-	m.count++
-	if m.count%100 == 0 {
+type cookie struct {
+	m *Mocker
+}
+
+func (c *cookie) Run(ctx context.Context) (drivers.RunResult, error) {
+	c.m.count++
+	if c.m.count%100 == 0 {
 		return nil, fmt.Errorf("Mocker error! Bad.")
 	}
 	return &runResult{
