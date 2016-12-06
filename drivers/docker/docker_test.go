@@ -57,13 +57,13 @@ func TestRunnerDocker(t *testing.T) {
 
 	task := &taskDockerTest{"test-docker", nil, nil}
 
-	closer, err := dkr.Prepare(ctx, task)
+	cookie, err := dkr.Prepare(ctx, task)
 	if err != nil {
 		t.Fatal("Couldn't prepare task test")
 	}
-	defer closer.Close()
+	defer cookie.Close()
 
-	result, err := dkr.Run(ctx, task)
+	result, err := cookie.Run(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,13 +83,13 @@ func TestRunnerDockerStdin(t *testing.T) {
 
 	task := &taskDockerTest{"test-docker-stdin", bytes.NewBufferString(input), &output}
 
-	closer, err := dkr.Prepare(ctx, task)
+	cookie, err := dkr.Prepare(ctx, task)
 	if err != nil {
 		t.Fatal("Couldn't prepare task test")
 	}
-	defer closer.Close()
+	defer cookie.Close()
 
-	result, err := dkr.Run(ctx, task)
+	result, err := cookie.Run(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
