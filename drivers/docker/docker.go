@@ -224,6 +224,15 @@ func registryForConfig(config docker.AuthConfiguration, reg string) (*registry.R
 	return r, nil
 }
 
+func (drv *DockerDriver) CanExecuteFast(ctx context.Context, task drivers.ContainerTask) bool {
+	_, err := drv.docker.InspectImage(task.Image())
+	if err != nil {
+		return false
+	}
+
+	return true
+}
+
 func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask) (drivers.Cookie, error) {
 	var cmd []string
 	if task.Command() != "" {
