@@ -29,6 +29,10 @@ type Mocker struct {
 	count int
 }
 
+func (m *Mocker) CanExecuteFast(context.Context, drivers.ContainerTask) bool {
+	return true
+}
+
 func (m *Mocker) Prepare(context.Context, drivers.ContainerTask) (drivers.Cookie, error) {
 	return &cookie{m}, nil
 }

@@ -49,7 +49,7 @@ type Cookie interface {
 type Driver interface {
 	// CanExecuteFast asks the driver if that tasks can be executed Without
 	// having to pull the image from a registry
-	CanExecuteFast(ctx context.Context, task ContainerTask) error
+	CanExecuteFast(ctx context.Context, task ContainerTask) bool
 
 	// Prepare can be used in order to do any preparation that a specific driver
 	// may need to do before running the task, and can be useful to put
