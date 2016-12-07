@@ -144,7 +144,7 @@ func NewTailLinesWriter(max int) *TailLinesWriter {
 // buffer before it is truncated.
 func (t *TailLinesWriter) Write(p []byte) (n int, err error) {
 	if t.tailCalled {
-		panic("Tail() has already been called.")
+		return 0, errors.New("Tail() has already been called.")
 	}
 
 	var afterNewLine int
@@ -192,7 +192,7 @@ func (t *TailLinesWriter) chompNewline() {
 // The returned bytes alias the buffer, the same restrictions as
 // bytes.Buffer.Bytes() apply.
 //
-// Once Tail() is called, further Write()s panic.
+// Once Tail() is called, further Write()s error.
 func (t *TailLinesWriter) Tail() []byte {
 	if !t.tailCalled {
 		t.tailCalled = true
