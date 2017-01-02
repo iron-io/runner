@@ -65,7 +65,7 @@ func SetLogDest(to, prefix string) {
 
 	switch url.Scheme {
 	case "udp", "tcp":
-		err = NewSyslogHook(url.Scheme, url.Host, 0, prefix)
+		err = NewSyslogHook(url, prefix)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{"uri": url, "to": to}).WithError(err).Error("unable to connect to syslog, defaulting to stderr")
 			return

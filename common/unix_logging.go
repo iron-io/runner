@@ -4,17 +4,19 @@ package common
 
 import (
 	"io/ioutil"
+	"net/url"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/Sirupsen/logrus/hooks/syslog"
 )
 
-func NewSyslogHook(scheme, host string, port int, prefix string) error {
-	syslog, err := logrus_syslog.NewSyslogHook(scheme, host, port, prefix)
+func NewSyslogHook(url *url.URL, prefix string) error {
+	syslog, err := logrus_syslog.NewSyslogHook(url.Scheme, url.Host, 0, prefix)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{"uri": url, "to": to}).WithError(err).Error("unable to connect to syslog, defaulting to stderr")
-		return
+		return err
 	}
 	logrus.AddHook(syslog)
 	// TODO we could support multiple destinations...
 	logrus.SetOutput(ioutil.Discard)
+	return nil
 }

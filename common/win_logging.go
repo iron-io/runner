@@ -2,8 +2,11 @@
 
 package common
 
-import "errors"
+import (
+	"errors"
+	"net/url"
+)
 
-func NewSyslogHook(scheme, host string, port int, prefix string) error {
+func NewSyslogHook(url *url.URL, prefix string) error {
 	return errors.New("Syslog not supported on this system.")
 }
