@@ -15,12 +15,10 @@
 package common
 
 import (
-	"io/ioutil"
 	"net/url"
 	"os"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/Sirupsen/logrus/hooks/syslog"
 )
 
 func SetLogLevel(ll string) {
@@ -67,14 +65,11 @@ func SetLogDest(to, prefix string) {
 
 	switch url.Scheme {
 	case "udp", "tcp":
-		syslog, err := logrus_syslog.NewSyslogHook(url.Scheme, url.Host, 0, prefix)
+		err = NewSyslogHook(url, prefix)
 		if err != nil {
 			logrus.WithFields(logrus.Fields{"uri": url, "to": to}).WithError(err).Error("unable to connect to syslog, defaulting to stderr")
 			return
 		}
-		logrus.AddHook(syslog)
-		// TODO we could support multiple destinations...
-		logrus.SetOutput(ioutil.Discard)
 	case "file":
 		f, err := os.OpenFile(url.Path, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 		if err != nil {
