@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pivotal-golang/bytefmt"
+	"code.cloudfoundry.org/bytefmt"
 )
 
 // A DriverCookie identifies a unique request to run a task.
