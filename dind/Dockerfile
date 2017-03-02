@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-FROM docker:1.12.6-dind
+FROM docker:1.13.1-dind
 
 RUN apk update && apk upgrade && apk add --no-cache ca-certificates
 
