@@ -161,9 +161,10 @@ func (m *Memory) UnmarshalJSON(p []byte) error {
 }
 
 type Config struct {
-	Docker    string `json:"docker" envconfig:"default=unix:///var/run/docker.sock,DOCKER"`
-	Memory    Memory `json:"memory" envconfig:"default=256M,MEMORY_PER_JOB"`
-	CPUShares int64  `json:"cpu_shares" envconfig:"default=2,CPU_SHARES"`
+	Docker        string `json:"docker" envconfig:"default=unix:///var/run/docker.sock,DOCKER"`
+	Memory        Memory `json:"memory" envconfig:"default=256M,MEMORY_PER_JOB"`
+	CPUShares     int64  `json:"cpu_shares" envconfig:"default=2,CPU_SHARES"`
+	DockerTimeout int    `json:"docker_timeout" envconfig:"default=10m,DOCKER_TIMEOUT"`
 }
 
 // for tests

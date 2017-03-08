@@ -104,7 +104,7 @@ func NewDocker(env *common.Environment, conf drivers.Config) *DockerDriver {
 
 	return &DockerDriver{
 		conf:        conf,
-		docker:      newClient(env),
+		docker:      newClient(env, conf.DockerTimeout),
 		hostname:    hostname,
 		Environment: env,
 	}
@@ -397,13 +397,10 @@ func (drv *DockerDriver) run(ctx context.Context, container string, task drivers
 	log := common.Logger(ctx)
 	timeout := task.Timeout()
 
-	var cancel context.CancelFunc
-	if timeout <= 0 {
-		ctx, cancel = context.WithCancel(ctx)
-	} else {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-	}
+	ctx, cancel = context.WithCancel(ctx)
 	defer cancel() // do this so that after Run exits, nanny and collect stop
+
+	// this non-sense is so we don't see logs about 'ErrContainerAlreadyStopped'
 	var complete bool
 	defer func() { complete = true }() // run before cancel is called
 	ctx = context.WithValue(ctx, completeKey, &complete)
@@ -426,6 +423,12 @@ func (drv *DockerDriver) run(ctx context.Context, container string, task drivers
 	err = drv.startTask(ctx, container)
 	if err != nil {
 		return nil, err
+	}
+
+	// start the clock after the task is started, if the task has a timeout
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
@@ -564,6 +567,12 @@ func newContainerID(task drivers.ContainerTask) string {
 }
 
 func (drv *DockerDriver) startTask(ctx context.Context, container string) error {
+	// get a special context that takes the full docker retry timeout, because we can't retry
+	// docker start as it's not idempotent (few cases go sideways, better to wait). don't use
+	// the task timeout as context yet b/c task is not running and docker start p99 is high.
+	ctx, cancel := context.WithTimeout(ctx, drv.conf.DockerTimeout)
+	defer cancel()
+
 	log := common.Logger(ctx)
 	startTimer := drv.NewTimer("docker", "start_container", 1.0)
 	log.WithFields(logrus.Fields{"container": container}).Debug("Starting container execution")
@@ -582,13 +591,13 @@ func (drv *DockerDriver) startTask(ctx context.Context, container string) error 
 }
 
 func (drv *DockerDriver) status(ctx context.Context, container string) (status string, err error) {
-	log := common.Logger(ctx)
+	log := common.Logger(ctx).WithFields(logrus.Fields{"container": container})
 
 	cinfo, err := drv.docker.InspectContainer(container)
 	if err != nil {
 		// this is pretty sad, but better to say we had an error than to not.
 		// task has run to completion and logs will be uploaded, user can decide
-		log.WithFields(logrus.Fields{"container": container}).WithError(err).Error("Inspecting container")
+		log.WithError(err).Error("Inspecting container")
 		return drivers.StatusError, err
 	}
 
@@ -629,7 +638,7 @@ func (drv *DockerDriver) status(ctx context.Context, container string) (status s
 			// the host kernel killed one of the container processes.
 			// See: https://github.com/docker/docker/issues/15621
 			// TODO reed: isn't an OOM an OOM? this is wasting space imo
-			log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
+			log.Info("Setting task as OOM killed, but docker disagreed.")
 			drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
 		}
 
