@@ -110,6 +110,8 @@ func TestParseImage(t *testing.T) {
 	cases := map[string][]string{
 		"iron/hello":                                        {"", "iron/hello", "latest"},
 		"iron/hello:v1":                                     {"", "iron/hello", "v1"},
+		"my.registry/hello":                                 {"my.registry", "hello", "latest"},
+		"my.registry/hello:v1":                              {"my.registry", "hello", "v1"},
 		"mongo":                                             {"", "library/mongo", "latest"},
 		"mongo:v1":                                          {"", "library/mongo", "v1"},
 		"quay.com/iron/hello":                               {"quay.com", "iron/hello", "latest"},
