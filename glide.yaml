@@ -10,7 +10,6 @@ import:
   subpackages:
   - statsd
 - package: github.com/docker/docker
-  version: fddb5a7f2ab29be441bc797f7e79fffc5cc531d3
   version: ^1.13.1
 - package: github.com/fsouza/go-dockerclient
   version: master
