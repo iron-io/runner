@@ -11,6 +11,8 @@ import:
   - statsd
 - package: github.com/docker/docker
   version: ^1.13.1
+- name: github.com/docker/distribution
+  version: ^2.6.0
 - package: github.com/fsouza/go-dockerclient
   version: master
 - package: github.com/heroku/docker-registry-client

@@ -1,0 +1,16 @@
+{
+    "dependencies": {
+        "github.com/Sirupsen/logrus": {
+            "branch": "master"
+        },
+        "github.com/cactus/go-statsd-client": {
+            "branch": "master"
+        },
+        "github.com/fsouza/go-dockerclient": {
+            "branch": "master"
+        },
+        "github.com/vrischmann/envconfig": {
+            "branch": "master"
+        }
+    }
+}
