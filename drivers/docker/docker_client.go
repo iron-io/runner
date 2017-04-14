@@ -69,9 +69,7 @@ func newClient(env *common.Environment) dockerClient {
 			Timeout:   10 * time.Second,
 			KeepAlive: 1 * time.Minute,
 		}).Dial,
-		TLSClientConfig: &tls.Config{
-			ClientSessionCache: tls.NewLRUClientSessionCache(8192),
-		},
+		TLSClientConfig:       client.TLSConfig,
 		TLSHandshakeTimeout:   10 * time.Second,
 		MaxIdleConnsPerHost:   512,
 		Proxy:                 http.ProxyFromEnvironment,
@@ -79,6 +77,7 @@ func newClient(env *common.Environment) dockerClient {
 		IdleConnTimeout:       90 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+	client.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(8192)
 
 	client.HTTPClient = &http.Client{Transport: t}
 
