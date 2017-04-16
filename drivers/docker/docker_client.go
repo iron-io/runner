@@ -79,6 +79,14 @@ func newClient(env *common.Environment) dockerClient {
 	}
 	client.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(8192)
 
+	if client.TLSConfig != nil {
+		client.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(8192)
+	} else {
+		t.TLSClientConfig = &tls.Config{
+			ClientSessionCache: tls.NewLRUClientSessionCache(8192),
+		}
+	}
+
 	client.HTTPClient = &http.Client{Transport: t}
 
 	if err := client.Ping(); err != nil {
