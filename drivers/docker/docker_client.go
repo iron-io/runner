@@ -77,7 +77,6 @@ func newClient(env *common.Environment) dockerClient {
 		IdleConnTimeout:       90 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
-	client.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(8192)
 
 	if client.TLSConfig != nil {
 		client.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(8192)
