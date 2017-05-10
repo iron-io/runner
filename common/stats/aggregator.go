@@ -15,6 +15,7 @@
 package stats
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,9 +51,8 @@ func newCollectedStatUnescaped(name string) *collectedStat {
 // previously. Useful for reporters that have low throughput ie stathat.
 type Aggregator struct {
 	// Holds all of our stats based on stat.Name
-	sl    sync.RWMutex
-	stats map[string]*statHolder
-
+	sl        sync.RWMutex
+	stats     map[string]*statHolder
 	reporters []reporter
 }
 
@@ -167,22 +167,30 @@ func (a *Aggregator) report(st []*collectedStat) {
 	}
 }
 
-func (r *Aggregator) Inc(component string, stat string, value int64, rate float32) {
-	r.add(component, stat, counterKind, value)
+func (r *Aggregator) Inc(value int64, stat ...string) {
+	component := stat[0]
+	newstat := strings.Join(stat[1:], ".")
+	r.add(component, newstat, counterKind, value)
 }
 
-func (r *Aggregator) Gauge(component string, stat string, value int64, rate float32) {
-	r.add(component, stat, gaugeKind, value)
+func (r *Aggregator) Gauge(value int64, stat ...string) {
+	component := stat[0]
+	newstat := strings.Join(stat[1:], ".")
+	r.add(component, newstat, gaugeKind, value)
 }
 
-func (r *Aggregator) Measure(component string, stat string, value int64, rate float32) {
-	r.add(component, stat, valueKind, value)
+func (r *Aggregator) Measure(value int64, stat ...string) {
+	component := stat[0]
+	newstat := strings.Join(stat[1:], ".")
+	r.add(component, newstat, valueKind, value)
 }
 
-func (r *Aggregator) Time(component string, stat string, value time.Duration, rate float32) {
-	r.add(component, stat, durationKind, value)
+func (r *Aggregator) Time(value time.Duration, stat ...string) {
+	component := stat[0]
+	newstat := strings.Join(stat[1:], ".")
+	r.add(component, newstat, durationKind, value)
 }
 
-func (r *Aggregator) NewTimer(component string, stat string, rate float32) *Timer {
-	return newTimer(r, component, stat, rate)
+func (r *Aggregator) NewTimer(stat ...string) *Timer {
+	return newTimer(r, stat...)
 }

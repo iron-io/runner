@@ -15,9 +15,6 @@
 package stats
 
 import (
-	"bytes"
-	"fmt"
-	"net"
 	"strings"
 	"time"
 
@@ -63,20 +60,6 @@ func (pkc *prefixKeyCreator) Key(stat string) string {
 	return prefix + "." + stat
 }
 
-func whoami() string {
-	a, _ := net.InterfaceAddrs()
-	for i := range a {
-		// is a textual representation of an IPv4 address
-		z, _, err := net.ParseCIDR(a[i].String())
-		if a[i].Network() == "ip+net" && err == nil && z.To4() != nil {
-			if !bytes.Equal(z, net.ParseIP("127.0.0.1")) {
-				return strings.Replace(fmt.Sprintf("%v", z), ".", "_", -1)
-			}
-		}
-	}
-	return "127_0_0_1" // shrug
-}
-
 // The config.Prefix is sent before each message and can be used to set API
 // keys. The prefix is used as the key prefix.
 // If config is nil, creates a noop reporter.
@@ -100,27 +83,22 @@ func NewStatsd(config *StatsdConfig) (*theStatsdReporter, error) {
 	return &theStatsdReporter{keyCreator: &prefixKeyCreator{}, client: client}, nil
 }
 
-func (sr *theStatsdReporter) Inc(component, stat string, value int64, rate float32) {
-	sr.client.Inc(sr.keyCreator.Key(component+"."+stat), value, rate)
+func (sr *theStatsdReporter) Inc(value int64, stat ...string) {
+	sr.client.Inc(sr.keyCreator.Key(strings.Join(stat, ".")), value, 1)
 }
 
-func (sr *theStatsdReporter) Measure(component, stat string, delta int64, rate float32) {
-	sr.client.Timing(sr.keyCreator.Key(component+"."+stat), delta, rate)
+func (sr *theStatsdReporter) Measure(delta int64, stat ...string) {
+	sr.client.Timing(sr.keyCreator.Key(strings.Join(stat, ".")), delta, 1)
 }
 
-func (sr *theStatsdReporter) Time(component, stat string, delta time.Duration, rate float32) {
-	sr.client.TimingDuration(sr.keyCreator.Key(component+"."+stat), delta, rate)
+func (sr *theStatsdReporter) Time(delta time.Duration, stat ...string) {
+	sr.client.TimingDuration(sr.keyCreator.Key(strings.Join(stat, ".")), delta, 1)
 }
 
-func (sr *theStatsdReporter) Gauge(component, stat string, value int64, rate float32) {
-	sr.client.Gauge(sr.keyCreator.Key(component+"."+stat), value, rate)
+func (sr *theStatsdReporter) Gauge(value int64, stat ...string) {
+	sr.client.Gauge(sr.keyCreator.Key(strings.Join(stat, ".")), value, 1)
 }
 
-func (sr *theStatsdReporter) NewTimer(component string, stat string, rate float32) *Timer {
-	return newTimer(sr, component, stat, rate)
+func (sr *theStatsdReporter) NewTimer(stat ...string) *Timer {
+	return newTimer(sr, strings.Join(stat, "."))
 }
-
-// We need some kind of all-or-nothing sampler where multiple stats can be
-// given the same rate and they are either all logged on that run or none of
-// them are. The statsd library we use ends up doing its own rate calculation
-// which is going to impede doing something like this.
