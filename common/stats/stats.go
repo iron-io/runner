@@ -35,6 +35,10 @@ type Statter interface {
 	NewTimer(stat ...string) *Timer
 }
 
+func AsStatField(input string) string {
+	return strings.Replace(strings.ToLower(strings.TrimSpace(input)), ".", "_", -1)
+}
+
 func New(config Config) Statter {
 	if config.Interval == 0.0 {
 		config.Interval = 60.0 // convenience

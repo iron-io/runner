@@ -30,7 +30,6 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	manifest "github.com/docker/distribution/manifest/schema1"
-	"github.com/fsouza/go-dockerclient"
 	"github.com/heroku/docker-registry-client/registry"
 	"github.com/iron-io/runner/common"
 	"github.com/iron-io/runner/common/stats"
@@ -361,7 +360,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
 	defer pullTimer.Measure()
 
-	drv.Inc("docker", "pull_image_count."+stats.AsStatField(task.Image()), 1, 1)
+	drv.Inc(1, "docker", "pull_image_count."+stats.AsStatField(task.Image()))
 
 	if reg != "" {
 		config.ServerAddress = reg
@@ -377,7 +376,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 
 	err = drv.docker.PullImage(docker.PullImageOptions{Repository: globalRepo, Tag: tag, Context: ctx}, config)
 	if err != nil {
-		drv.Inc("task", "error.pull."+stats.AsStatField(task.Image()), 1, 1)
+		drv.Inc(1, "task", "error.pull."+stats.AsStatField(task.Image()))
 		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).WithError(err).Error("Failed to pull image")
 
 		// TODO need to inspect for hub or network errors and pick.
@@ -623,14 +622,14 @@ func (drv *DockerDriver) status(ctx context.Context, container string) (status s
 	case 0:
 		return drivers.StatusSuccess, nil
 	case 137: // OOM
-		drv.Inc("docker", "oom", 1, 1)
+		drv.Inc(1, "docker", "oom")
 		if !cinfo.State.OOMKilled {
 			// It is possible that the host itself is running out of memory and
 			// the host kernel killed one of the container processes.
 			// See: https://github.com/docker/docker/issues/15621
 			// TODO reed: isn't an OOM an OOM? this is wasting space imo
 			log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
-			drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
+			drv.Inc(1, "docker", "possible_oom_false_alarm")
 		}
 
 		return drivers.StatusKilled, drivers.ErrOutOfMemory
