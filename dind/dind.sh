@@ -32,11 +32,15 @@ cmd="dockerd \
 
 # nanny and restart on crashes
 until eval $cmd; do
-  echo "Docker crashed with exit code $?.  Respawning.." >&2
-  # if we just restart it won't work, so start it (it wedges up) and
-  # then kill the wedgie and restart it again and ta da... yea, seriously
-  pidfile=/var/run/docker/libcontainerd/docker-containerd.pid
-  kill -9 $(cat $pidfile)
-  rm $pidfile
-  sleep 1
+  echo "Docker crashed with exit code $?. Trying to launch with overlay2.override_kernel_check option.." >&2
+  cmd="$cmd --storage-opt overlay2.override_kernel_check=1"
+  until eval $cmd; do
+    echo "Docker crashed with exit code $?.  Respawning.." >&2
+    # if we just restart it won't work, so start it (it wedges up) and
+    # then kill the wedgie and restart it again and ta da... yea, seriously
+    pidfile=/var/run/docker/libcontainerd/docker-containerd.pid
+    kill -9 $(cat $pidfile)
+    rm $pidfile
+    sleep 1
+  done
 done
