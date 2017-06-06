@@ -14,14 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -ex
+set -uxo
 # modified from: https://github.com/docker-library/docker/blob/866c3fbd87e8eeed524fdf19ba2d63288ad49cd2/1.11/dind/dockerd-entrypoint.sh
 # this will run either overlay or aufs as the docker fs driver, if the OS has both, overlay is preferred.
 # rewrite overlay to use overlay2 (docker 1.12, linux >=4.x required), see https://docs.docker.com/engine/userguide/storagedriver/selectadriver/#overlay-vs-overlay2
 
 fsdriver=$(grep -Eh -w -m1 "overlay|aufs" /proc/filesystems | cut -f2)
 
-if [ $fsdriver == "overlay" ]; then
+if [ "${fsdriver}" == "overlay" ]; then
   fsdriver="overlay2"
 fi
 
@@ -30,13 +30,41 @@ cmd="dockerd \
 		--host=tcp://0.0.0.0:2375 \
 		--storage-driver=$fsdriver"
 
+pidfile=/var/run/docker/libcontainerd/docker-containerd.pid
+
+#launch in Background
+eval $cmd &
+sleep 5
+
+if docker_failed; then
+  cmd="$cmd --storage-opt overlay2.override_kernel_check=1"
+  stop_docker
+fi
+
+wait $(cat $pidfile)
+
 # nanny and restart on crashes
 until eval $cmd; do
   echo "Docker crashed with exit code $?.  Respawning.." >&2
   # if we just restart it won't work, so start it (it wedges up) and
   # then kill the wedgie and restart it again and ta da... yea, seriously
-  pidfile=/var/run/docker/libcontainerd/docker-containerd.pid
-  kill -9 $(cat $pidfile)
-  rm $pidfile
-  sleep 1
+  stop_docker
 done
+
+
+stop_docker() {
+  if [-f $pidfile]; then
+    kill -9 $(cat $pidfile)
+    wait $(cat $pidfile)
+    rm $pidfile
+  fi
+}
+
+docker_failed() {
+  ps="docker ps"
+  if [ eval timeout -t 3 $ps ]; then
+    #docker runs ok
+    return 1
+  fi
+  return 0
+}
