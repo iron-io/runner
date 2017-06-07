@@ -25,6 +25,7 @@ if [ $fsdriver == "overlay" ]; then
   fsdriver="overlay2"
 fi
 
+#https://docs.docker.com/engine/userguide/storagedriver/overlayfs-driver/#configure-docker-with-the-overlay-or-overlay2-storage-driver
 sub_opt=""
 case "$(uname -r)" in
   *.el7*) sub_opt="--storage-opt overlay2.override_kernel_check=1" ;;
