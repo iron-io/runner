@@ -21,12 +21,6 @@ import (
 	"github.com/cactus/go-statsd-client/statsd"
 )
 
-type StatsdConfig struct {
-	StatsdUdpTarget string `json:"target" mapstructure:"target" envconfig:"STATSD_TARGET"`
-	Interval        int64  `json:"interval" envconfig:"STATSD_INTERVAL"`
-	Prefix          string `json:"prefix" envconfig:"STATSD_PREFIX"`
-}
-
 type keyCreator interface {
 	// The return value of Key *MUST* never have a '.' at the end.
 	Key(stat string) string

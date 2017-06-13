@@ -22,9 +22,15 @@ type Config struct {
 	StatHat    *StatHatReporterConfig
 	NewRelic   *NewRelicReporterConfig
 	Statsd     *StatsdConfig
-	GCStats    int  `json:"gc_stats"`    // seconds
-	NewStatter bool `json:"new_statter"` // Statter using armon/go-metrics
-	NoHostname bool `json:"no_hostname"` //Don't include hostname by default
+	GCStats    int  `json:"gc_stats" envconfig:"GC_STATS"`        // seconds
+	NewStatter bool `json:"new_statter"  envconfig:"NEW_STATTER"` // Statter using armon/go-metrics
+	NoHostname bool `json:"no_hostname"  envconfig:"NO_HOSTNAME"` //Don't include hostname by default
+}
+
+type StatsdConfig struct {
+	StatsdUdpTarget string `json:"target" mapstructure:"target" envconfig:"STATSD_TARGET"`
+	Interval        int64  `json:"interval" envconfig:"STATSD_INTERVAL"`
+	Prefix          string `json:"prefix" envconfig:"STATSD_PREFIX"`
 }
 
 type Statter interface {
