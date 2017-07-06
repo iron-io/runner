@@ -315,6 +315,6 @@ func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {
 	//return err
 }
 
-func (d *dockerWrap) Ping() (err error) {
+func (d *dockerWrap) Ping() error {
 	return d.docker.Ping()
 }
