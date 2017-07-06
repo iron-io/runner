@@ -300,6 +300,11 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 	return &cookie{id: containerName, task: task, drv: drv}, nil
 }
 
+func (drv *DockerDriver) IsAlive(ctx context.Context) bool {
+	err := drv.docker.Ping()
+	return err == nil
+}
+
 type cookie struct {
 	id   string
 	task drivers.ContainerTask

@@ -33,6 +33,10 @@ func (m *Mocker) Prepare(context.Context, drivers.ContainerTask) (drivers.Cookie
 	return &cookie{m}, nil
 }
 
+func (m *Mocker) IsAlive(ctx context.Context) bool  {
+	return true
+}
+
 type cookie struct {
 	m *Mocker
 }
