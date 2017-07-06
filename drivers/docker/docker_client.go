@@ -53,6 +53,7 @@ type dockerClient interface {
 	InspectContainer(id string) (*docker.Container, error)
 	StopContainer(id string, timeout uint) error
 	Stats(opts docker.StatsOptions) error
+	Ping() error
 }
 
 // TODO: switch to github.com/docker/engine-api
@@ -312,4 +313,8 @@ func (d *dockerWrap) Stats(opts docker.StatsOptions) (err error) {
 	//return err
 	//})
 	//return err
+}
+
+func (d *dockerWrap) Ping() error {
+	return d.docker.Ping()
 }

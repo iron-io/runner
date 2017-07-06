@@ -50,6 +50,18 @@ func (f *taskDockerTest) WorkDir() string                    { return "" }
 func (f *taskDockerTest) Close()                             {}
 func (f *taskDockerTest) Input() io.Reader                   { return f.input }
 
+func TestDockerIsAlive(t *testing.T) {
+
+	env := common.NewEnvironment(func(e *common.Environment) {})
+	dkr := NewDocker(env, drivers.Config{})
+	ctx := context.Background()
+
+	isAlive := dkr.IsAlive(ctx)
+	if !isAlive {
+		t.Fatal("Docker is not working")
+	}
+}
+
 func TestRunnerDocker(t *testing.T) {
 	env := common.NewEnvironment(func(e *common.Environment) {})
 	dkr := NewDocker(env, drivers.Config{})
