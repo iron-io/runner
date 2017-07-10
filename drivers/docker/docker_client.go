@@ -116,7 +116,7 @@ func (d *dockerWrap) retry(ctx context.Context, f func() error) error {
 	for {
 		select {
 		case <-ctx.Done():
-			d.Inc("task", "fail.docker", 1, 1)
+			d.Inc(1, "@hostname", "task", "fail", "docker")
 			logrus.WithError(ctx.Err()).Warnf("retrying on docker errors timed out, restart docker or rotate this instance?")
 			return ctx.Err()
 		default:
@@ -126,11 +126,11 @@ func (d *dockerWrap) retry(ctx context.Context, f func() error) error {
 		if common.IsTemporary(err) || isDocker50x(err) {
 			logrus.WithError(err).Warn("docker temporary error, retrying")
 			b.Sleep()
-			d.Inc("task", "error.docker", 1, 1)
+			d.Inc(1, "task", "error", "docker", "@hostname")
 			continue
 		}
 		if err != nil {
-			d.Inc("task", "error.docker", 1, 1)
+			d.Inc(1, "task", "error", "docker", "@hostname")
 		}
 		return err
 	}

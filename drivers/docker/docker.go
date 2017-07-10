@@ -33,7 +33,6 @@ import (
 	"github.com/fsouza/go-dockerclient"
 	"github.com/heroku/docker-registry-client/registry"
 	"github.com/iron-io/runner/common"
-	"github.com/iron-io/runner/common/stats"
 	"github.com/iron-io/runner/drivers"
 )
 
@@ -278,7 +277,7 @@ func (drv *DockerDriver) Prepare(ctx context.Context, task drivers.ContainerTask
 		return nil, err
 	}
 
-	createTimer := drv.NewTimer("docker", "create_container", 1.0)
+	createTimer := drv.NewTimer("docker", "create_container")
 	_, err = drv.docker.CreateContainer(container)
 	createTimer.Measure()
 	if err != nil {
@@ -318,7 +317,7 @@ func (c *cookie) Run(ctx context.Context) (drivers.RunResult, error) {
 }
 
 func (drv *DockerDriver) removeContainer(container string) error {
-	removeTimer := drv.NewTimer("docker", "remove_container", 1.0)
+	removeTimer := drv.NewTimer("docker", "remove_container")
 	defer removeTimer.Measure()
 	err := drv.docker.RemoveContainer(docker.RemoveContainerOptions{
 		ID: container, Force: true, RemoveVolumes: true})
@@ -363,10 +362,10 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 	reg, repo, tag := drivers.ParseImage(task.Image())
 	globalRepo := path.Join(reg, repo)
 
-	pullTimer := drv.NewTimer("docker", "pull_image", 1.0)
+	pullTimer := drv.NewTimer("docker", "pull_image")
 	defer pullTimer.Measure()
 
-	drv.Inc("docker", "pull_image_count."+stats.AsStatField(task.Image()), 1, 1)
+	drv.Inc(1, "docker", "pull_image_count")
 
 	if reg != "" {
 		config.ServerAddress = reg
@@ -382,7 +381,7 @@ func (drv *DockerDriver) pullImage(ctx context.Context, task drivers.ContainerTa
 
 	err = drv.docker.PullImage(docker.PullImageOptions{Repository: globalRepo, Tag: tag, Context: ctx}, config)
 	if err != nil {
-		drv.Inc("task", "error.pull."+stats.AsStatField(task.Image()), 1, 1)
+		drv.Inc(1, "docker", "error", "pull", "@hostname")
 		log.WithFields(logrus.Fields{"registry": config.ServerAddress, "username": config.Username, "image": task.Image()}).WithError(err).Error("Failed to pull image")
 
 		// TODO need to inspect for hub or network errors and pick.
@@ -418,7 +417,7 @@ func (drv *DockerDriver) run(ctx context.Context, container string, task drivers
 
 	mwOut, mwErr := task.Logger()
 
-	timer := drv.NewTimer("docker", "attach_container", 1)
+	timer := drv.NewTimer("docker", "attach_container")
 	waiter, err := drv.docker.AttachToContainerNonBlocking(docker.AttachToContainerOptions{
 		Container: container, OutputStream: mwOut, ErrorStream: mwErr,
 		Stream: true, Logs: true, Stdout: true, Stderr: true,
@@ -433,7 +432,7 @@ func (drv *DockerDriver) run(ctx context.Context, container string, task drivers
 		return nil, err
 	}
 
-	taskTimer := drv.NewTimer("docker", "container_runtime", 1)
+	taskTimer := drv.NewTimer("docker", "container_runtime")
 
 	// can discard error, inspect will tell us about the task and wait will retry under the hood
 	drv.docker.WaitContainerWithContext(container, ctx)
@@ -467,7 +466,7 @@ func (drv *DockerDriver) nanny(ctx context.Context, container string) {
 }
 
 func (drv *DockerDriver) cancel(container string) {
-	stopTimer := drv.NewTimer("docker", "stop_container", 1.0)
+	stopTimer := drv.NewTimer("docker", "stop_container")
 	err := drv.docker.StopContainer(container, 30)
 	stopTimer.Measure()
 	if err != nil {
@@ -570,7 +569,7 @@ func newContainerID(task drivers.ContainerTask) string {
 
 func (drv *DockerDriver) startTask(ctx context.Context, container string) error {
 	log := common.Logger(ctx)
-	startTimer := drv.NewTimer("docker", "start_container", 1.0)
+	startTimer := drv.NewTimer("docker", "start_container")
 	log.WithFields(logrus.Fields{"container": container}).Debug("Starting container execution")
 	err := drv.docker.StartContainerWithContext(container, nil, ctx)
 	startTimer.Measure()
@@ -628,14 +627,14 @@ func (drv *DockerDriver) status(ctx context.Context, container string) (status s
 	case 0:
 		return drivers.StatusSuccess, nil
 	case 137: // OOM
-		drv.Inc("docker", "oom", 1, 1)
+		drv.Inc(1, "docker", "oom", "@hostname")
 		if !cinfo.State.OOMKilled {
 			// It is possible that the host itself is running out of memory and
 			// the host kernel killed one of the container processes.
 			// See: https://github.com/docker/docker/issues/15621
 			// TODO reed: isn't an OOM an OOM? this is wasting space imo
 			log.WithFields(logrus.Fields{"container": container}).Info("Setting task as OOM killed, but docker disagreed.")
-			drv.Inc("docker", "possible_oom_false_alarm", 1, 1.0)
+			drv.Inc(1, "docker", "possible_oom_false_alarm", "@hostname")
 		}
 
 		return drivers.StatusKilled, drivers.ErrOutOfMemory

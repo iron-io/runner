@@ -29,12 +29,12 @@ func StartReportingMemoryAndGC(reporter Statter, d time.Duration) {
 
 			prefix := "runtime"
 
-			reporter.Measure(prefix, "allocated", int64(ms.Alloc), 1.0)
-			reporter.Measure(prefix, "allocated.heap", int64(ms.HeapAlloc), 1.0)
-			reporter.Time(prefix, "gc.pause", time.Duration(ms.PauseNs[(ms.NumGC+255)%256]), 1.0)
+			reporter.Measure(int64(ms.Alloc), prefix, "allocated")
+			reporter.Measure(int64(ms.HeapAlloc), prefix, "allocated.heap")
+			reporter.Time(time.Duration(ms.PauseNs[(ms.NumGC+255)%256]), prefix, "gc.pause")
 
 			// GC CPU percentage.
-			reporter.Measure(prefix, "gc.cpufraction", int64(ms.GCCPUFraction*100), 1.0)
+			reporter.Measure(int64(ms.GCCPUFraction*100), prefix, "gc.cpufraction")
 		}
 	}
 }
