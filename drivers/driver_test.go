@@ -117,6 +117,8 @@ func TestParseImage(t *testing.T) {
 		"quay.com/iron/hello":                               {"quay.com", "iron/hello", "latest"},
 		"quay.com:8080/iron/hello:v2":                       {"quay.com:8080", "iron/hello", "v2"},
 		"localhost.localdomain:5000/samalba/hipache:latest": {"localhost.localdomain:5000", "samalba/hipache", "latest"},
+		"some-other.registry.com/busybox":                   {"some-other.registry.com", "busybox", "latest"},
+		"brandonmoser/meteor-node-0.10.41":                  {"", "brandonmoser/meteor-node-0.10.41", "latest"},
 	}
 
 	for in, out := range cases {
