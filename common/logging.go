@@ -18,7 +18,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 func SetLogLevel(ll string) {

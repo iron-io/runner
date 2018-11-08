@@ -1,23 +1,32 @@
-package: github.com/iron-io/runner
+package: .
 import:
-- package: github.com/Sirupsen/logrus
-  version: ^0.10.0
-  subpackages:
-  - hooks/syslog
+- package: code.cloudfoundry.org/bytefmt
 - package: github.com/amir/raidman
 - package: github.com/cactus/go-statsd-client
-  version: ^3.1.0
+  version: ^3.1.1
   subpackages:
   - statsd
-- package: github.com/docker/docker
-  version: ^1.13.1
+- package: github.com/docker/distribution
+  version: ^2.7.0-rc.0
+  subpackages:
+  - manifest/schema1
 - package: github.com/fsouza/go-dockerclient
-  version: master
+  version: ^1.3.1
 - package: github.com/heroku/docker-registry-client
-  version: master
   subpackages:
   - registry
-- package: code.cloudfoundry.org/bytefmt
+- package: github.com/iron-io/runner
+  subpackages:
+  - common
+  - common/stats
+  - drivers
+- package: github.com/sirupsen/logrus
+  version: ^1.2.0
+  subpackages:
+  - hooks/syslog
+- package: github.com/Sirupsen/logrus
+  repo: https://github.com/sirupsen/logrus.git
+  version: ^1.2.0
 testImport:
 - package: github.com/vrischmann/envconfig
-  version: 757beaaeac8d14bcc7ea3f71488d65cf45cf2eff
+  version: ^1.1.0

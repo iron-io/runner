@@ -1,30 +1,28 @@
-hash: d7c3318fa4d64560e9149d2ebaf0e863232ab42ffbdf13473d4260a23d2ad2b8
-updated: 2017-04-05T13:35:00.148390772-07:00
+hash: 2992bfbe06dd6e6137cc7fc9972641966e456a2a1163da952d97f57abed575e8
+updated: 2018-11-08T17:50:27.2871588+09:00
 imports:
 - name: code.cloudfoundry.org/bytefmt
-  version: a75017a21993c80187c7fa4f3c1ec22ddd6a8cd5
+  version: 2aa6f33b730c79971cfc3c742f279195b0abc627
 - name: github.com/amir/raidman
-  version: c74861fe6a7bb8ede0a010ce4485bdbb4fc4c985
+  version: 1ccc43bfb9c93cb401a4025e49c64ba71e5e668b
   subpackages:
   - proto
 - name: github.com/Azure/go-ansiterm
-  version: fa152c58bc15761d0200cb75fe958b89a9d4888e
+  version: d6e3b3328b783f23731bc4d058875b0371ff8109
   subpackages:
   - winterm
 - name: github.com/cactus/go-statsd-client
-  version: 91c326c3f7bd20f0226d3d1c289dd9f8ce28d33d
+  version: 138b925ccdf617776955904ba7759fce64406cec
   subpackages:
   - statsd
 - name: github.com/docker/distribution
-  version: 99cb7c0946d2f5a38015443e515dc916295064d7
+  version: 17b3ff188dfde7d5b59a94ab99e6a967b3a59563
   subpackages:
-  - context
-  - digest
+  - digestset
   - manifest
   - manifest/schema1
   - manifest/schema2
   - reference
-  - uuid
 - name: github.com/docker/docker
   version: 092cba3727bb9b4a2f0e922cd6c0f93ea270e363
   subpackages:
@@ -39,66 +37,82 @@ imports:
   - api/types/swarm
   - api/types/versions
   - opts
-  - pkg/archive
   - pkg/fileutils
   - pkg/homedir
   - pkg/idtools
   - pkg/ioutils
-  - pkg/jsonlog
-  - pkg/jsonmessage
   - pkg/longpath
   - pkg/pools
-  - pkg/promise
   - pkg/stdcopy
   - pkg/system
-  - pkg/term
-  - pkg/term/windows
 - name: github.com/docker/go-connections
-  version: 4ccf312bf1d35e5dbda654e57a9be4c3f3cd0366
+  version: 97c2040d34dfae1d1b1275fa3a78dbdd2f41cf7e
   subpackages:
   - nat
 - name: github.com/docker/go-units
-  version: e30f1e79f3cd72542f2026ceec18d3bd67ab859c
+  version: 2fb04c6466a548a03cb009c5569ee1ab1e35398e
 - name: github.com/docker/libtrust
-  version: fa567046d9b14f6aa788882a950d69651d230b21
+  version: aabc10ec26b754e797f9028f4589c5b7bd90dc20
 - name: github.com/fsouza/go-dockerclient
-  version: e24e809e9db395f1e3c85af1b88f2002023610f5
+  version: f3bdb27a96799b10006a884ef2fed89284466276
+  subpackages:
+  - internal/archive
+  - internal/jsonmessage
+  - internal/term
 - name: github.com/golang/protobuf
-  version: 2402d76f3d41f928c7902a765dfc872356dd3aad
+  version: 75dceb112b174be156fa9952e66d3e99945572b4
   subpackages:
   - proto
-- name: github.com/gorilla/context
-  version: 14f550f51af52180c2eefed15e5fd18d63c0a64a
-- name: github.com/gorilla/mux
-  version: e444e69cbd2e2e3e0749a2f3c717cec491552bbf
-- name: github.com/hashicorp/go-cleanhttp
-  version: ad28ea4487f05916463e2423a55166280e8254b5
 - name: github.com/heroku/docker-registry-client
-  version: 95467b6cacee2a06f112a3cf7e47a70fad6000cf
+  version: 47ecf50fd8d4fba87593c00ca0959029c7d6b95c
   subpackages:
   - registry
-- name: github.com/Microsoft/go-winio
-  version: 24a3e3d3fc7451805e09d11e11e95d9a0a4f205e
-- name: github.com/opencontainers/runc
-  version: 8893fa693bf9bf29e5a156369bc51b887df43924
+- name: github.com/iron-io/runner
+  version: 9fe11b16791641c40a0729de8bac7ba28a507145
   subpackages:
-  - libcontainer/system
+  - common
+  - common/stats
+  - drivers
+- name: github.com/konsorten/go-windows-terminal-sequences
+  version: 5c8c8bd35d3832f5d134ae1e1e375b69a4d25242
+- name: github.com/Microsoft/go-winio
+  version: 97e4973ce50b2ff5f09635a57e2b88a037aae829
+- name: github.com/Nvveen/Gotty
+  version: cd527374f1e5bff4938207604a14f2e38a9cf512
+- name: github.com/opencontainers/go-digest
+  version: c9281466c8b2f606084ac71339773efd177436e7
+- name: github.com/opencontainers/image-spec
+  version: 09950c5fb1bb6745e72aa26ecde0d540e35f5286
+  subpackages:
+  - specs-go
+  - specs-go/v1
+- name: github.com/opencontainers/runc
+  version: 079817cc26ec5292ac375bb9f47f373d33574949
+  subpackages:
   - libcontainer/user
 - name: github.com/Sirupsen/logrus
   version: ba1b36c82c5e05c4f912a88eab0dcd91a171688f
   subpackages:
   - hooks/syslog
+- name: github.com/sirupsen/logrus
+  version: bcd833dfe83d3cebad139e4a29ed79cb2318bf95
+  subpackages:
+  - hooks/syslog
+- name: golang.org/x/crypto
+  version: e4dc69e5b2fd71dcaf8bd5d054eb936deb78d1fa
+  subpackages:
+  - ssh/terminal
 - name: golang.org/x/net
-  version: 4876518f9e71663000c348837735820161a42df7
+  version: 03003ca0c849e57b6ea29a4bab8d3cb6e4d568fe
   subpackages:
   - context
-  - context/ctxhttp
+  - internal/socks
   - proxy
 - name: golang.org/x/sys
-  version: d5645953809d8b4752afb2c3224b1f1ad73dfa70
+  version: 66b7b1311ac80bbafcd2daeef9a5e6e2cd1e2399
   subpackages:
   - unix
   - windows
 testImports:
 - name: github.com/vrischmann/envconfig
-  version: 757beaaeac8d14bcc7ea3f71488d65cf45cf2eff
+  version: 7a443243d539c9595dd8aa7f03a6f68707b80e66
