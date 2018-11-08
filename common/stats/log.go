@@ -17,7 +17,7 @@ package stats
 import (
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 type LogReporter struct {

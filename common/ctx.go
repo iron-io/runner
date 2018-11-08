@@ -17,7 +17,7 @@ package common
 import (
 	"context"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 // WithLogger stores the logger.
