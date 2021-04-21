@@ -212,6 +212,10 @@ func registryForConfig(config docker.AuthConfiguration, reg string) (*registry.R
 		return nil, err
 	}
 
+        if strings.Contains(reg,"dkr.ecr") {
+                reg = config.ServerAddress
+        }
+
 	// Use this instead of registry.New to avoid the Ping().
 	transport := registry.WrapTransport(registryClient.Transport, reg, config.Username, config.Password)
 	r := &registry.Registry{
