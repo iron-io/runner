@@ -273,7 +273,7 @@ func ParseImage(image string) (registry, repo, tag string) {
 	case 1:
 		repo = "library/" + repo
 	case 2:
-		if strings.Contains(repo, ".") {
+		if strings.Contains(parts[0], ".") {
 			registry = parts[0]
 			repo = parts[1]
 		}
